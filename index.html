@@ -191,7 +191,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Arrastra este botón a tu barra de favoritos:</div>
         <a id="bookmarkletBtn"
            style="display:inline-block;background:var(--green);color:#000;font-weight:800;font-family:Syne,sans-serif;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:13px"
-           href="BOOKMARKLET_PLACEHOLDER">
+           href="#">
           📋 Cargar en App
         </a>
         <div style="font-size:10px;color:var(--muted);margin-top:8px">En móvil: guárdalo como marcador y edita la URL</div>
@@ -711,11 +711,11 @@ function clearBetHistory(){if(!confirm("¿Borrar historial?"))return;betHistory=
 // ── Bookmarklet setup ────────────────────────────────────────────────────────
 function setupBookmarklet() {
   const appUrl = window.location.origin;
-  // Pre-built bookmarklet with exact bet365 CSS classes
-  const bm = "javascript:(function(){var APP=''+appUrl+'';var runners=[];var url=window.location.href;var fiMatch=url.match(/F(\d+)/);var fi=fiMatch?fiMatch[1]:'0';var sportMatch=url.match(/B(\d+)/);var sport=sportMatch?sportMatch[1]:'73';var rows=document.querySelectorAll('.rh-af');rows.forEach(function(row,i){var nameEl=row.querySelector('p.sr-dc6edd')||row.querySelector('[class*="sr-dc6edd"]')||row.querySelector('p');var oddEls=row.querySelectorAll('span.rul-ce0412');var oddEl=oddEls[oddEls.length-1];var numEl=row.querySelector('[class*="rh-6"] span,[class*="rh-6"] div');var num=numEl?numEl.innerText.trim():'';if(nameEl&&oddEl){var name=nameEl.innerText.trim();var odd=oddEl.innerText.trim();if(name&&odd&&parseFloat(odd)>1.0&&name.length>1){runners.push({name:name,odd:odd,num:num,fi:fi,sport_id:parseInt(sport),index:i});}}});if(runners.length===0){alert('No se encontraron caballos con cuotas disponibles.\n\nAsegurate de:\n1. Estar en la pagina de una carrera de caballos\n2. Que la carrera este abierta para apuestas\n3. Estar en la tab Racecard');return;}fetch(APP+'/api/race/from-browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runners:runners,url:url,fi:parseInt(fi),sport_id:parseInt(sport)})}).then(function(r){return r.json()}).then(function(d){if(d.success)alert('\u2713 '+d.count+' caballos cargados en tu app!\nVuelve a la app y selecciona el ganador.');else alert('Error: '+(d.error||'desconocido'));}).catch(function(e){alert('Error conectando con la app: '+e.message);});})();";
+  const bmCode = "javascript:(function(){var APP='" + appUrl + "';var runners=[];var url=window.location.href;var fiMatch=url.match(/F(\\d+)/);var fi=fiMatch?fiMatch[1]:'0';var sportMatch=url.match(/B(\\d+)/);var sport=sportMatch?sportMatch[1]:'73';var rows=document.querySelectorAll('.rh-af');rows.forEach(function(row,i){var nameEl=row.querySelector('p.sr-dc6edd')||row.querySelector('p');var oddEls=row.querySelectorAll('span.rul-ce0412');var oddEl=oddEls[oddEls.length-1];if(nameEl&&oddEl){var name=nameEl.innerText.trim();var odd=oddEl.innerText.trim();if(name&&odd&&parseFloat(odd)>1.0&&name.length>1){runners.push({name:name,odd:odd,fi:fi,sport_id:parseInt(sport),index:i});}}});if(runners.length===0){alert('No se encontraron caballos.\\nAsegurate de estar en una carrera ABIERTA en Bet365.');return;}fetch(APP+'/api/race/from-browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runners:runners,url:url,fi:parseInt(fi),sport_id:parseInt(sport)})}).then(function(r){return r.json()}).then(function(d){if(d.success)alert('\u2713 '+d.count+' caballos cargados!\\nVuelve a tu app.');else alert('Error: '+(d.error||'?'));}).catch(function(e){alert('Error: '+e.message);});})();";
   const btn = document.getElementById("bookmarkletBtn");
-  if (btn) btn.href = bm;
+  if (btn) btn.href = bmCode;
 }
+
 
 async function checkForNewRace() {
   document.getElementById("loadStatus").textContent = "Verificando...";
