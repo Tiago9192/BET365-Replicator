@@ -451,19 +451,131 @@ def delete_single_ip():
         return jsonify({"success": True})
     return jsonify({"error": "IP no encontrada"}), 404
 
+
 # ══════════════════════════════════════════════════════════════════
-# ROUTES — PLACE BET
+# HORSE RACING — LOAD RUNNERS FROM URL
+# ══════════════════════════════════════════════════════════════════
+
+def odd_to_decimal(odd_str):
+    """Convert fractional odd (e.g. '9/2') or decimal string to float."""
+    if not odd_str:
+        return None
+    odd_str = str(odd_str).strip()
+    try:
+        if "/" in odd_str:
+            num, den = odd_str.split("/")
+            return round(int(num) / int(den) + 1, 3)
+        return round(float(odd_str), 3)
+    except Exception:
+        return None
+
+def parse_prematch_runners(raw):
+    """
+    Parse bet365 prematch stream to extract horse runners with IDs and odds.
+    bet365 returns pipe/semicolon delimited raw text.
+    """
+    import re
+    runners = []
+    text = raw if isinstance(raw, str) else json.dumps(raw)
+
+    # Pattern: long numeric ID followed by horse name and fractional/decimal odd
+    pattern = re.compile(r'(\d{7,12})[|;,]([A-Za-z][A-Za-z0-9 \'\-\.]{2,30})[|;,](\d+/\d+|\d+\.\d{1,2})')
+    seen_names = set()
+    for m in pattern.finditer(text):
+        sel_id  = int(m.group(1))
+        name    = m.group(2).strip()
+        odd_raw = m.group(3).strip()
+        decimal = odd_to_decimal(odd_raw)
+        if decimal and decimal > 1.0 and name not in seen_names:
+            seen_names.add(name)
+            runners.append({
+                "id":      sel_id,
+                "name":    name,
+                "odd_raw": odd_raw,
+                "odd_dec": decimal
+            })
+
+    return sorted(runners, key=lambda x: x["odd_dec"])
+
+@app.route("/api/race/runners", methods=["POST"])
+def load_runners():
+    """
+    Fetch horse runners and current odds for a given Bet365 race URL.
+    Uses a guest session — no account login required.
+    """
+    import re
+    data = request.json
+    url  = data.get("url", "")
+    if not url:
+        return jsonify({"error": "URL requerida"}), 400
+
+    pd, err = parse_bet365_url(url)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Extract IDs from URL segments
+    sport_id = 73
+    fi       = 0
+    sm = re.search(r'/B(\d+)/', url)
+    fm = re.search(r'/F(\d+)/', url)
+    em = re.search(r'/E(\d+)/', url)
+    if sm: sport_id = int(sm.group(1))
+    if fm: fi       = int(fm.group(1))
+    event_id = int(em.group(1)) if em else 0
+
+    # Use first available api_key for guest session
+    accounts = load_accounts()
+    api_key  = next((a["api_key"] for a in accounts if a.get("api_key")), None)
+    if not api_key:
+        return jsonify({"error": "Necesitas al menos una cuenta configurada con API key"}), 400
+
+    # Create guest session
+    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key,
+                              {"domain": "https://www.bet365.com/"})
+    if gs != 200 or "session_id" not in gr:
+        return jsonify({"error": f"Error sesión guest: {gr}"}), 400
+
+    guest_id = gr["session_id"]
+
+    # Fetch prematch data stream
+    _, pr = qrsolver_request("GET",
+                             f"/api/placebet/guest/{guest_id}/prematch",
+                             api_key,
+                             params={"pd": pd})
+
+    raw     = pr if isinstance(pr, str) else json.dumps(pr)
+    runners = parse_prematch_runners(raw)
+
+    return jsonify({
+        "runners":    runners,
+        "pd":         pd,
+        "sport_id":   sport_id,
+        "fi":         fi,
+        "event_id":   event_id,
+        "raw_sample": raw[:400]   # for debugging if runners is empty
+    })
+
+# ══════════════════════════════════════════════════════════════════
+# ROUTES — PLACE BET (HORSES WIN + ODD PROTECTION)
 # ══════════════════════════════════════════════════════════════════
 
 @app.route("/api/placebet", methods=["POST"])
 def place_bet_all():
-    data       = request.json
-    bet365_url = data.get("url")
-    stake      = data.get("stake", 10)
-    bet_type   = data.get("type", "singles")
+    data         = request.json
+    bet365_url   = data.get("url")
+    stake        = float(data.get("stake", 10))
+    sport_id     = data.get("sport_id", 73)
+    fi           = data.get("fi", 0)
+    selection_id = data.get("selection_id", 0)
+    odd_raw      = data.get("odd", "")
+    min_odd      = data.get("min_odd")        # minimum decimal odd user set
+    odd_drop_pct = float(data.get("odd_drop_pct", 10))  # block if drops > X%
+    pd_hash      = data.get("pd", "")
 
     if not bet365_url:
         return jsonify({"error": "URL de Bet365 requerida"}), 400
+    if not selection_id:
+        return jsonify({"error": "Selecciona un caballo primero"}), 400
 
     pd, error = parse_bet365_url(bet365_url)
     if error:
@@ -471,18 +583,54 @@ def place_bet_all():
 
     accounts = load_accounts()
     active   = [a for a in accounts if a.get("session_id") and a.get("status") == "connected"]
-
     if not active:
         return jsonify({"error": "No hay cuentas conectadas"}), 400
 
+    # ── Odd protection: re-check current odd before firing ─────────────
+    original_decimal = odd_to_decimal(odd_raw)
+    odd_check = {"checked": False, "blocked": False, "reason": ""}
+
+    if original_decimal:
+        api_key = active[0]["api_key"]
+        gs, gr  = qrsolver_request("POST", "/api/placebet/guest/create/", api_key,
+                                   {"domain": "https://www.bet365.com/"})
+        if gs == 200 and "session_id" in gr:
+            _, pr   = qrsolver_request("GET",
+                                       f"/api/placebet/guest/{gr['session_id']}/prematch",
+                                       api_key, params={"pd": pd})
+            runners = parse_prematch_runners(pr if isinstance(pr, str) else json.dumps(pr))
+            current = next((r for r in runners if r["id"] == int(selection_id)), None)
+
+            if current:
+                odd_check["checked"]      = True
+                odd_check["current_odd"]  = current["odd_dec"]
+                odd_check["original_odd"] = original_decimal
+                drop = (original_decimal - current["odd_dec"]) / original_decimal * 100
+                odd_check["drop_pct"]     = round(drop, 1)
+
+                if min_odd and current["odd_dec"] < float(min_odd):
+                    odd_check["blocked"] = True
+                    odd_check["reason"]  = f"Cuota {current['odd_dec']} por debajo del mínimo {min_odd}"
+
+                elif drop > odd_drop_pct:
+                    odd_check["blocked"] = True
+                    odd_check["reason"]  = f"Cuota cayó {drop:.1f}% — supera el límite del {odd_drop_pct}%"
+
+                if not odd_check["blocked"]:
+                    odd_raw = current["odd_raw"]   # use fresh odd
+
+    if odd_check.get("blocked"):
+        return jsonify({"blocked": True, "odd_check": odd_check, "results": []})
+
+    # ── Fire on all accounts in parallel ───────────────────────────────
     def bet_one(account):
         bet_body = {
-            "type": bet_type,
+            "type": "singles",
             "selections": [{
-                "sport_id": data.get("sport_id", 1),
-                "fi":       data.get("fi", 0),
-                "id":       data.get("selection_id", 0),
-                "odd":      data.get("odd", ""),
+                "sport_id": sport_id,
+                "fi":       fi,
+                "id":       selection_id,
+                "odd":      odd_raw,
                 "stake":    stake
             }],
             "stake": stake
@@ -509,10 +657,51 @@ def place_bet_all():
         ):
             results.append(future.result())
 
-    return jsonify({"results": results, "pd": pd})
+    return jsonify({"results": results, "pd": pd, "odd_check": odd_check, "blocked": False})
 
 # ══════════════════════════════════════════════════════════════════
-# SERVE FRONTEND
+# ROUTES — ALL BALANCES
+# ══════════════════════════════════════════════════════════════════
+
+@app.route("/api/balances", methods=["GET"])
+def get_all_balances():
+    accounts = load_accounts()
+    active   = [a for a in accounts if a.get("session_id") and a.get("status") == "connected"]
+
+    def fetch_one(account):
+        _, resp = qrsolver_request(
+            "GET",
+            f"/api/placebet/session/{account['session_id']}/balance/",
+            account["api_key"]
+        )
+        return {
+            "id":          account["id"],
+            "name":        account["name"],
+            "balance":     resp.get("balance"),
+            "withdrawable":resp.get("withdrawable"),
+            "bonus":       resp.get("bonus"),
+            "currency":    resp.get("currency", ""),
+            "error":       resp.get("error")
+        }
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        for future in concurrent.futures.as_completed(
+            {executor.submit(fetch_one, acc): acc for acc in active}
+        ):
+            results.append(future.result())
+
+    connected_ids = {a["id"] for a in active}
+    for a in accounts:
+        if a["id"] not in connected_ids:
+            results.append({
+                "id": a["id"], "name": a["name"],
+                "balance": None, "error": "desconectada"
+            })
+
+    results.sort(key=lambda x: x["id"])
+    return jsonify(results)
+
 # ══════════════════════════════════════════════════════════════════
 
 @app.route("/")
