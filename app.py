@@ -866,6 +866,35 @@ def debug_prematch():
     })
 
 
+
+@app.route("/api/race/from-browser", methods=["POST"])
+def race_from_browser():
+    """Receive race data extracted by the bookmarklet from the user's browser."""
+    data    = request.json
+    runners = data.get("runners", [])
+    url     = data.get("url", "")
+
+    if not runners:
+        return jsonify({"error": "No se recibieron datos"}), 400
+
+    # Store temporarily in memory (overwrite each time)
+    app.config["LAST_RACE"] = {
+        "runners": runners,
+        "url":     url,
+        "ts":      datetime.utcnow().isoformat()
+    }
+    return jsonify({"success": True, "count": len(runners)})
+
+
+@app.route("/api/race/last", methods=["GET"])
+def race_last():
+    """Return last race data received from the bookmarklet."""
+    race = app.config.get("LAST_RACE")
+    if not race:
+        return jsonify({"error": "No hay carrera cargada"}), 404
+    return jsonify(race)
+
+
 @app.route("/")
 def index():
     if os.path.exists("index.html"):
