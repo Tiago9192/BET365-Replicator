@@ -739,6 +739,86 @@ def get_all_balances():
 
 # ══════════════════════════════════════════════════════════════════
 
+
+# ══════════════════════════════════════════════════════════════════
+# DEBUG — test PD hash formats
+# ══════════════════════════════════════════════════════════════════
+
+@app.route("/api/debug/prematch", methods=["POST"])
+def debug_prematch():
+    """Try all PD formats and return raw responses for debugging."""
+    import re
+    data = request.json
+    url  = data.get("url", "")
+
+    accounts = load_accounts()
+    account  = next((a for a in accounts if a.get("status") == "connected" and a.get("api_key")), None)
+    if not account:
+        return jsonify({"error": "No hay cuentas conectadas"}), 400
+
+    api_key    = account["api_key"]
+    session_id = account.get("session_id")
+    proxy      = account.get("proxy", "")
+
+    # Parse fragment from URL
+    from urllib.parse import urlparse
+    parsed   = urlparse(url)
+    fragment = parsed.fragment  # e.g. /AC/B73/C104/D20260404/E21134093/F192388023/H0/
+
+    # Generate all format variants
+    pd_variants = {
+        "hash_format":    fragment.replace("/", "#"),           # #AC#B73#...#
+        "hash_no_lead":   fragment.replace("/", "#").lstrip("#"), # AC#B73#...#
+        "slash_format":   fragment,                              # /AC/B73/.../
+        "slash_no_lead":  fragment.lstrip("/"),                  # AC/B73/.../
+        "hash_no_trail":  fragment.replace("/", "#").strip("#"), # AC#B73#...
+    }
+
+    results = {}
+
+    # Test with existing session on guest endpoint
+    for name, pd_val in pd_variants.items():
+        if session_id:
+            status, resp = qrsolver_request("GET",
+                f"/api/placebet/guest/{session_id}/prematch",
+                api_key, params={"pd": pd_val})
+            raw = resp if isinstance(resp, str) else json.dumps(resp)
+            results[f"existing_session_{name}"] = {
+                "pd_sent": pd_val,
+                "status":  status,
+                "response": raw[:300]
+            }
+
+    # Also try creating a fresh guest session
+    guest_body = {"domain": "https://www.bet365.com/"}
+    if proxy:
+        guest_body["proxy"] = proxy
+    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
+    results["guest_session_create"] = {"status": gs, "response": json.dumps(gr)[:200]}
+
+    if gs == 200 and "session_id" in gr:
+        guest_id = gr["session_id"]
+        for name, pd_val in list(pd_variants.items())[:3]:  # test 3 formats with guest
+            status, resp = qrsolver_request("GET",
+                f"/api/placebet/guest/{guest_id}/prematch",
+                api_key, params={"pd": pd_val})
+            raw = resp if isinstance(resp, str) else json.dumps(resp)
+            results[f"guest_{name}"] = {
+                "pd_sent":  pd_val,
+                "status":   status,
+                "response": raw[:400]
+            }
+        # Clean up guest session
+        qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
+
+    return jsonify({
+        "fragment":  fragment,
+        "account":   account["name"],
+        "session_id": session_id,
+        "results":   results
+    })
+
+
 @app.route("/")
 def index():
     if os.path.exists("index.html"):
