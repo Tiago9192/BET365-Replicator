@@ -477,37 +477,72 @@ def odd_to_decimal(odd_str):
 
 def parse_prematch_runners(raw):
     """
-    Parse bet365 prematch stream to extract horse runners with IDs and odds.
-    bet365 returns pipe/semicolon delimited raw text.
+    Parse bet365 raw data stream to extract horse runners.
+    Bet365 uses a pipe-delimited proprietary format.
+    Handles both JSON responses and raw text streams.
     """
     import re
     runners = []
+    if not raw:
+        return runners
+
     text = raw if isinstance(raw, str) else json.dumps(raw)
 
-    # Pattern: long numeric ID followed by horse name and fractional/decimal odd
-    pattern = re.compile(r'(\d{7,12})[|;,]([A-Za-z][A-Za-z0-9 \'\-\.]{2,30})[|;,](\d+/\d+|\d+\.\d{1,2})')
     seen_names = set()
-    for m in pattern.finditer(text):
-        sel_id  = int(m.group(1))
-        name    = m.group(2).strip()
-        odd_raw = m.group(3).strip()
-        decimal = odd_to_decimal(odd_raw)
-        if decimal and decimal > 1.0 and name not in seen_names:
+    seen_ids   = set()
+
+    # Pattern 1: ID|Name|Odd (pipe delimited — bet365 stream format)
+    # Example: 192388023|El Vikingo|9/2
+    p1 = re.compile(r'(\d{6,12})\|([A-Za-z][A-Za-z0-9 \'\-\.áéíóúñÁÉÍÓÚÑ]{2,35})\|(\d+/\d+|\d+\.\d{1,2})')
+    for m in p1.finditer(text):
+        sel_id = int(m.group(1))
+        name   = m.group(2).strip()
+        odd    = m.group(3).strip()
+        dec    = odd_to_decimal(odd)
+        if dec and dec > 1.0 and name not in seen_names and sel_id not in seen_ids:
             seen_names.add(name)
-            runners.append({
-                "id":      sel_id,
-                "name":    name,
-                "odd_raw": odd_raw,
-                "odd_dec": decimal
-            })
+            seen_ids.add(sel_id)
+            runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
+
+    # Pattern 2: semicolon delimited
+    if not runners:
+        p2 = re.compile(r'(\d{6,12});([A-Za-z][A-Za-z0-9 \'\-\.áéíóúñ]{2,35});(\d+/\d+|\d+\.\d{1,2})')
+        for m in p2.finditer(text):
+            sel_id = int(m.group(1))
+            name   = m.group(2).strip()
+            odd    = m.group(3).strip()
+            dec    = odd_to_decimal(odd)
+            if dec and dec > 1.0 and name not in seen_names and sel_id not in seen_ids:
+                seen_names.add(name)
+                seen_ids.add(sel_id)
+                runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
+
+    # Pattern 3: any separator — broad fallback
+    if not runners:
+        p3 = re.compile(r'(\d{6,12})[^\d]([A-Za-z][A-Za-z0-9 \'\-\.]{2,35})[^\d](\d+/\d+)')
+        for m in p3.finditer(text):
+            sel_id = int(m.group(1))
+            name   = m.group(2).strip()
+            odd    = m.group(3).strip()
+            dec    = odd_to_decimal(odd)
+            if dec and dec > 1.0 and name not in seen_names and sel_id not in seen_ids:
+                seen_names.add(name)
+                seen_ids.add(sel_id)
+                runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
 
     return sorted(runners, key=lambda x: x["odd_dec"])
+
+
+# ══════════════════════════════════════════════════════════════════
+# HORSE RACING — FETCH DIRECTLY FROM BET365 VIA PROXY
+# ══════════════════════════════════════════════════════════════════
 
 @app.route("/api/race/runners", methods=["POST"])
 def load_runners():
     """
-    Fetch horse runners and current odds for a given Bet365 race URL.
-    Uses a guest session — no account login required.
+    Fetch horse runners directly from Bet365 public API using the account proxy.
+    No QRSolver slot needed — Bet365 race data is public (no login required).
+    QRSolver is only used for placing the actual bet.
     """
     import re
     data = request.json
@@ -515,81 +550,81 @@ def load_runners():
     if not url:
         return jsonify({"error": "URL requerida"}), 400
 
-    pd, err = parse_bet365_url(url)
-    if err:
-        return jsonify({"error": err}), 400
-
-    # Extract IDs from URL segments
-    sport_id = 73
-    fi       = 0
+    # Extract params from URL segments
     sm = re.search(r'/B(\d+)/', url)
     fm = re.search(r'/F(\d+)/', url)
     em = re.search(r'/E(\d+)/', url)
-    if sm: sport_id = int(sm.group(1))
-    if fm: fi       = int(fm.group(1))
+    sport_id = int(sm.group(1)) if sm else 73
+    fi       = int(fm.group(1)) if fm else 0
     event_id = int(em.group(1)) if em else 0
 
-    # Use first connected account (proxy required by API)
-    accounts = load_accounts()
-    account  = next((a for a in accounts if a.get("status") == "connected" and a.get("api_key")), None)
-    if not account:
-        account = next((a for a in accounts if a.get("api_key")), None)
-    if not account:
-        return jsonify({"error": "Necesitas al menos una cuenta configurada con API key"}), 400
+    # Build PD hash from URL fragment
+    # Fragment: /AC/B73/C104/D20260404/E21134093/F192388023/H0/
+    # PD format: #AC#B73#C104#D20260404#E21134093#F192388023#H0#
+    from urllib.parse import urlparse
+    fragment = urlparse(url).fragment
+    pd = fragment.replace("/", "#")
+    if not pd.startswith("#"):
+        pd = "#" + pd
+    if not pd.endswith("#"):
+        pd = pd + "#"
 
-    api_key    = account["api_key"]
-    session_id = account.get("session_id")
+    # Call Bet365 SportsBook API directly from Railway server (no proxy).
+    # Race data is fully public — no login needed, just like any anonymous visitor.
+    # Using NO proxy here means Railway's IP is completely unrelated to
+    # your betting accounts. Zero risk of cross-contamination.
+    bet365_url = "https://www.bet365.com/SportsBook.API/web"
+    params = {"lid": "1", "zid": "0", "pd": pd, "cid": "97", "ctid": "97"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+        "Referer": "https://www.bet365.com/",
+        "Origin": "https://www.bet365.com",
+        "Cache-Control": "no-cache"
+    }
 
-    # Try to use existing logged-in session first (avoids using extra slots)
-    # Fall back to guest session only if no active session
-    if session_id:
-        # Try multiple PD formats — API can be strict about format
-        pd_formats = [
-            pd,                                    # #AC#B73#...
-            pd.lstrip("#"),                        # AC#B73#...
-            pd.replace("#", "/").lstrip("/"),      # AC/B73/...
-            "/" + pd.replace("#", "/").lstrip("/") # /AC/B73/...
-        ]
-        pr = {}
-        for pd_try in pd_formats:
-            status_pr, pr = qrsolver_request("GET",
-                                 f"/api/placebet/guest/{session_id}/prematch",
-                                 api_key,
-                                 params={"pd": pd_try})
-            raw_try = pr if isinstance(pr, str) else json.dumps(pr)
-            if "invalid" not in raw_try.lower() and "error" not in raw_try.lower():
-                pd = pd_try  # use this working format
-                break
-    else:
-        # No active session — try guest (needs a free slot)
-        proxy      = account.get("proxy", "")
-        guest_body = {"domain": "https://www.bet365.com/"}
-        if proxy:
-            guest_body["proxy"] = proxy
-        gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
-        if gs != 200 or "session_id" not in gr:
-            return jsonify({"error": f"Error sesión guest: {gr}. Conecta una cuenta primero."}), 400
-        session_id = gr["session_id"]
-        _, pr = qrsolver_request("GET",
-                                 f"/api/placebet/guest/{session_id}/prematch",
-                                 api_key,
-                                 params={"pd": pd})
+    raw = ""
+    runners = []
+    fetch_error = None
 
-    raw     = pr if isinstance(pr, str) else json.dumps(pr)
-    runners = parse_prematch_runners(raw)
+    try:
+        # No proxy — Railway IP is neutral, unrelated to any account
+        r = requests.get(
+            bet365_url,
+            params=params,
+            headers=headers,
+            timeout=20,
+            verify=False
+        )
+        raw = r.text
+
+        # Also try .es domain if .com returns empty
+        if not raw or len(raw) < 50:
+            r2 = requests.get(
+                "https://www.bet365.es/SportsBook.API/web",
+                params=params,
+                headers=headers,
+                timeout=20,
+                verify=False
+            )
+            if len(r2.text) > len(raw):
+                raw = r2.text
+
+        runners = parse_prematch_runners(raw)
+
+    except Exception as e:
+        fetch_error = str(e)
 
     return jsonify({
-        "runners":    runners,
-        "pd":         pd,
-        "sport_id":   sport_id,
-        "fi":         fi,
-        "event_id":   event_id,
-        "raw_sample": raw[:600]
+        "runners":     runners,
+        "pd":          pd,
+        "sport_id":    sport_id,
+        "fi":          fi,
+        "event_id":    event_id,
+        "fetch_error": fetch_error,
+        "raw_sample":  raw[:800] if raw else ""
     })
-
-# ══════════════════════════════════════════════════════════════════
-# ROUTES — PLACE BET (HORSES WIN + ODD PROTECTION)
-# ══════════════════════════════════════════════════════════════════
 
 @app.route("/api/placebet", methods=["POST"])
 def place_bet_all():
