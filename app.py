@@ -523,15 +523,23 @@ def load_runners():
     if fm: fi       = int(fm.group(1))
     event_id = int(em.group(1)) if em else 0
 
-    # Use first available api_key for guest session
+    # Use first connected account (proxy required by API)
     accounts = load_accounts()
-    api_key  = next((a["api_key"] for a in accounts if a.get("api_key")), None)
-    if not api_key:
+    account  = next((a for a in accounts if a.get("status") == "connected" and a.get("api_key")), None)
+    if not account:
+        account = next((a for a in accounts if a.get("api_key")), None)
+    if not account:
         return jsonify({"error": "Necesitas al menos una cuenta configurada con API key"}), 400
 
-    # Create guest session
-    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key,
-                              {"domain": "https://www.bet365.com/"})
+    api_key = account["api_key"]
+    proxy   = account.get("proxy", "")
+
+    # Create guest session — proxy is required by the API
+    guest_body = {"domain": "https://www.bet365.com/"}
+    if proxy:
+        guest_body["proxy"] = proxy
+
+    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
     if gs != 200 or "session_id" not in gr:
         return jsonify({"error": f"Error sesión guest: {gr}"}), 400
 
@@ -591,9 +599,12 @@ def place_bet_all():
     odd_check = {"checked": False, "blocked": False, "reason": ""}
 
     if original_decimal:
-        api_key = active[0]["api_key"]
-        gs, gr  = qrsolver_request("POST", "/api/placebet/guest/create/", api_key,
-                                   {"domain": "https://www.bet365.com/"})
+        api_key    = active[0]["api_key"]
+        proxy      = active[0].get("proxy", "")
+        guest_body = {"domain": "https://www.bet365.com/"}
+        if proxy:
+            guest_body["proxy"] = proxy
+        gs, gr  = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
         if gs == 200 and "session_id" in gr:
             _, pr   = qrsolver_request("GET",
                                        f"/api/placebet/guest/{gr['session_id']}/prematch",
