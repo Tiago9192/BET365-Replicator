@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Bet365 Replicator</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0f;--surface:#12121a;--card:#1a1a26;--border:#2a2a3a;--green:#00ff88;--green-dim:#00cc6a;--red:#ff4466;--orange:#ff8800;--yellow:#ffcc00;--blue:#4488ff;--text:#e8e8f0;--muted:#606080;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;}
+
+/* Header */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:13px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.logo{font-size:17px;font-weight:800;}.logo span{color:var(--green);}
+.conn-badge{font-family:'Space Mono',monospace;font-size:11px;background:rgba(0,255,136,0.1);border:1px solid var(--green);color:var(--green);padding:4px 10px;border-radius:20px;}
+
+/* Tabs */
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;}
+.tab{flex:1;min-width:60px;padding:11px 4px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap;}
+.tab.active{color:var(--green);border-bottom-color:var(--green);}
+
+/* Content */
+.content{padding:14px 14px 100px;max-width:580px;margin:0 auto;}
+.panel{display:none;}.panel.active{display:block;}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;}
+.card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:10px;}
+
+/* Inputs */
+.form-group{margin-bottom:12px;}
+.form-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:5px;}
+.form-input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;outline:none;transition:border-color 0.2s;}
+.form-input:focus{border-color:var(--green);}
+.form-input::placeholder{color:var(--muted);}
+
+/* Buttons */
+.btn{padding:8px 14px;border-radius:8px;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;}
+.btn-primary{background:var(--green);color:#000;}.btn-primary:hover{background:var(--green-dim);}
+.btn-primary:active{transform:scale(0.97);}
+.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border);}
+.btn-ghost:hover{border-color:var(--text);}
+.btn-danger{background:transparent;color:var(--red);border:1px solid var(--red);}
+.btn-sm{padding:5px 10px;font-size:11px;}
+
+/* Fire Button */
+#fireZone{position:fixed;bottom:0;left:0;right:0;padding:10px 14px 22px;background:linear-gradient(transparent,var(--bg) 28%);z-index:50;}
+#fireBtn{width:100%;padding:17px;border-radius:14px;font-family:'Syne',sans-serif;font-size:17px;font-weight:800;border:none;cursor:pointer;background:linear-gradient(135deg,#00ff88,#00cc6a);color:#000;box-shadow:0 0 30px rgba(0,255,136,0.35);transition:all 0.15s;}
+#fireBtn:active{transform:scale(0.97);}
+#fireBtn.firing{background:linear-gradient(135deg,var(--yellow),var(--orange));box-shadow:0 0 30px rgba(255,200,0,0.4);animation:firePulse 0.5s infinite alternate;}
+#fireBtn.empty{background:var(--surface);color:var(--muted);box-shadow:none;cursor:not-allowed;}
+@keyframes firePulse{from{transform:scale(1);}to{transform:scale(1.02);}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Queue */
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+.summary-item{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;}
+.summary-num{font-size:22px;font-weight:800;line-height:1;}
+.summary-label{font-size:9px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;}
+.queue-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;transition:all 0.2s;}
+.queue-item.ready{border-color:rgba(68,136,255,0.5);}
+.queue-item.firing{border-color:var(--yellow);background:rgba(255,204,0,0.04);}
+.queue-item.done-ok{border-color:var(--green);background:rgba(0,255,136,0.04);}
+.queue-item.done-fail{border-color:var(--red);background:rgba(255,68,102,0.04);}
+.qi-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.qi-num{width:22px;height:22px;border-radius:6px;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;}
+.qi-num.ready{background:var(--blue);color:#fff;}
+.qi-num.firing{background:var(--yellow);color:#000;animation:pulse 0.5s infinite;}
+.qi-num.done-ok{background:rgba(0,255,136,0.2);color:var(--green);}
+.qi-num.done-fail{background:rgba(255,68,102,0.2);color:var(--red);}
+.qi-name{font-size:13px;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.qi-actions{display:flex;gap:5px;flex-shrink:0;}
+.qi-url{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);word-break:break-all;margin-bottom:6px;}
+.qi-meta{display:flex;gap:10px;font-size:11px;align-items:center;}
+.qi-stake{color:var(--green);font-weight:700;}
+.qi-type{color:var(--muted);}
+.qi-status{margin-left:auto;font-size:10px;}
+.qi-results{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;}
+.chip{font-family:'Space Mono',monospace;font-size:10px;padding:3px 7px;border-radius:4px;}
+.chip-ok{background:rgba(0,255,136,0.15);color:var(--green);}
+.chip-fail{background:rgba(255,68,102,0.15);color:var(--red);}
+
+/* Accounts */
+.account-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;}
+.account-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+.dot-connected{background:var(--green);box-shadow:0 0 8px var(--green);}
+.dot-disconnected{background:var(--muted);}
+.dot-error{background:var(--red);}
+.dot-loading{background:var(--yellow);animation:pulse 1s infinite;}
+.account-info{flex:1;min-width:0;}
+.account-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.account-user{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px;}
+.account-actions{display:flex;gap:5px;flex-shrink:0;}
+.add-form{display:none;}.add-form.open{display:block;}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.section-title{font-size:15px;font-weight:700;}
+.empty-state{text-align:center;padding:28px;color:var(--muted);font-size:13px;}
+
+/* IP History */
+.ip-account-block{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;}
+.ip-account-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.ip-account-name{font-size:14px;font-weight:700;}
+.ip-current{font-family:'Space Mono',monospace;font-size:12px;color:var(--green);background:rgba(0,255,136,0.1);padding:4px 10px;border-radius:6px;}
+.ip-current.conflict{color:var(--red);background:rgba(255,68,102,0.1);}
+.ip-current.none{color:var(--muted);background:transparent;}
+.ip-table{width:100%;border-collapse:collapse;margin-top:8px;}
+.ip-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);padding:4px 6px;text-align:left;border-bottom:1px solid var(--border);}
+.ip-table td{font-family:'Space Mono',monospace;font-size:11px;padding:5px 6px;border-bottom:1px solid rgba(42,42,58,0.5);vertical-align:top;}
+.ip-table tr:last-child td{border-bottom:none;}
+.times-badge{display:inline-block;background:rgba(68,136,255,0.15);color:var(--blue);padding:1px 6px;border-radius:4px;font-size:10px;}
+
+/* Login log */
+.login-log{margin-top:8px;}
+.log-entry{font-family:'Space Mono',monospace;font-size:10px;padding:3px 0;display:flex;gap:8px;align-items:flex-start;}
+.log-ts{color:var(--muted);flex-shrink:0;}
+.log-ip{font-weight:700;}
+.log-status{color:var(--muted);font-size:10px;}
+.log-ok .log-ip{color:var(--green);}
+.log-fail .log-ip{color:var(--red);}
+.log-warn .log-ip{color:var(--yellow);}
+
+/* Conflict banner */
+.conflict-banner{background:rgba(255,68,102,0.08);border:1px solid var(--red);border-radius:10px;padding:12px;margin-bottom:12px;}
+.ok-banner{background:rgba(0,255,136,0.06);border:1px solid var(--green);border-radius:10px;padding:12px;margin-bottom:12px;}
+
+/* History */
+.hist-item{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;}
+.hist-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.hist-date{font-size:10px;color:var(--muted);}
+.badge{padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;}
+.badge-ok{background:rgba(0,255,136,0.15);color:var(--green);}
+
+/* Toast */
+#toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:13px;z-index:200;transition:transform 0.3s;max-width:300px;text-align:center;pointer-events:none;}
+#toast.show{transform:translateX(-50%) translateY(0);}
+#toast.success{border-color:var(--green);color:var(--green);}
+#toast.error{border-color:var(--red);color:var(--red);}
+#toast.info{border-color:var(--blue);color:var(--blue);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">BET<span>365</span> REPLICA</div>
+  <div class="conn-badge" id="connBadge">0/0 ●</div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('cola')">🎯 Cola</button>
+  <button class="tab" onclick="switchTab('cuentas')">👤 Cuentas</button>
+  <button class="tab" onclick="switchTab('ips')">🌐 IPs</button>
+  <button class="tab" onclick="switchTab('historial')">📋 Historial</button>
+</div>
+
+<div class="content">
+
+<!-- ══ TAB: COLA ══ -->
+<div class="panel active" id="tab-cola">
+  <div class="summary">
+    <div class="summary-item"><div class="summary-num" id="sumQueue" style="color:var(--blue)">0</div><div class="summary-label">En cola</div></div>
+    <div class="summary-item"><div class="summary-num" id="sumOk" style="color:var(--green)">0</div><div class="summary-label">OK</div></div>
+    <div class="summary-item"><div class="summary-num" id="sumFail" style="color:var(--red)">0</div><div class="summary-label">Error</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Agregar evento a la cola</div>
+    <div class="form-group">
+      <label class="form-label">Nombre del evento</label>
+      <input class="form-input" id="qName" placeholder="Ej: Real Madrid vs Barcelona">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Link de Bet365</label>
+      <textarea class="form-input" id="qUrl" rows="2" placeholder="https://www.bet365.com/#/AC/B1/C1/..."></textarea>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="form-group">
+        <label class="form-label">Stake</label>
+        <input type="number" class="form-input" id="qStake" value="10" min="0.01" step="0.01">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tipo</label>
+        <select class="form-input" id="qType">
+          <option value="singles">Singles</option>
+          <option value="multiples">Múltiples</option>
+          <option value="betbuilder">Bet Builder</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" onclick="addToQueue()">+ Agregar a cola</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearDone()">Limpiar ✓</button>
+    </div>
+  </div>
+
+  <div id="queueList"><div class="empty-state">Cola vacía.<br>Carga eventos con anticipación y<br>dispara todos a la vez.</div></div>
+</div>
+
+<!-- ══ TAB: CUENTAS ══ -->
+<div class="panel" id="tab-cuentas">
+  <div class="section-header">
+    <div class="section-title">Mis Cuentas</div>
+    <button class="btn btn-primary btn-sm" onclick="toggleAddForm()">+ Agregar</button>
+  </div>
+  <div class="card add-form" id="addForm">
+    <div class="card-title">Nueva cuenta</div>
+    <div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="newName" placeholder="Cuenta 1"></div>
+    <div class="form-group"><label class="form-label">Usuario Bet365</label><input class="form-input" id="newUsername" placeholder="usuario@email.com"></div>
+    <div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" type="password" id="newPassword" placeholder="••••••••"></div>
+    <div class="form-group"><label class="form-label">Código de país</label><input class="form-input" id="newCountry" placeholder="ES, MX, CO, AR..."></div>
+    <div class="form-group"><label class="form-label">Proxy móvil</label><input class="form-input" id="newProxy" placeholder="http://user:pass@host:port"></div>
+    <div class="form-group"><label class="form-label">API Key QRSolver</label><input class="form-input" id="newApiKey" placeholder="Tu API key"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="addAccount()">Guardar</button>
+      <button class="btn btn-ghost" onclick="toggleAddForm()">Cancelar</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn btn-primary btn-sm" style="flex:1" onclick="loginAll()">⚡ Conectar todas</button>
+    <button class="btn btn-ghost btn-sm" onclick="keepaliveAll()">💓 Keepalive</button>
+  </div>
+  <div id="accountsList"><div class="empty-state">Cargando...</div></div>
+</div>
+
+<!-- ══ TAB: IPs ══ -->
+<div class="panel" id="tab-ips">
+  <div class="section-header">
+    <div class="section-title">Historial de IPs</div>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-ghost btn-sm" onclick="loadIPHistory()">🔄 Actualizar</button>
+      <button class="btn btn-danger btn-sm" onclick="clearIPHistory()">🗑 Borrar</button>
+    </div>
+  </div>
+
+  <div id="ipConflictBanner" style="display:none"></div>
+
+  <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+    Cada IP queda registrada permanentemente por cuenta. Si al conectar una cuenta le cae una IP ya usada por otra, el sistema fuerza rotación automáticamente hasta obtener una IP limpia.
+  </div>
+
+  <div id="ipHistoryList"><div class="empty-state">Conecta las cuentas para ver el registro de IPs.</div></div>
+</div>
+
+<!-- ══ TAB: HISTORIAL ══ -->
+<div class="panel" id="tab-historial">
+  <div class="section-header">
+    <div class="section-title">Historial de apuestas</div>
+    <button class="btn btn-danger btn-sm" onclick="clearBetHistory()">Borrar</button>
+  </div>
+  <div id="historialList"><div class="empty-state">Sin historial aún.</div></div>
+</div>
+
+</div><!-- /content -->
+
+<!-- FIRE BUTTON -->
+<div id="fireZone">
+  <button id="fireBtn" class="empty" onclick="fireAll()">🚫 Sin eventos en cola</button>
+</div>
+<div id="toast"></div>
+
+<script>
+const API = "";
+let accounts = [];
+let queue = JSON.parse(localStorage.getItem("bq3") || "[]");
+let betHistory = JSON.parse(localStorage.getItem("bh3") || "[]");
+let isFiring = false;
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  const names = ["cola","cuentas","ips","historial"];
+  document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", names[i]===name));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.getElementById("tab-"+name).classList.add("active");
+  if (name === "historial") renderBetHistory();
+  if (name === "ips") loadIPHistory();
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type="success") {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = `show ${type}`;
+  setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// QUEUE
+// ══════════════════════════════════════════════════════════════════
+function saveQueue() {
+  localStorage.setItem("bq3", JSON.stringify(
+    queue.map(i => ({...i, status: i.status==="firing"?"ready":i.status}))
+  ));
+}
+
+function addToQueue() {
+  const name  = document.getElementById("qName").value.trim();
+  const url   = document.getElementById("qUrl").value.trim();
+  const stake = parseFloat(document.getElementById("qStake").value);
+  const type  = document.getElementById("qType").value;
+  if (!url)          { toast("Pega el link de Bet365","error"); return; }
+  if (!stake||stake<=0) { toast("Stake inválido","error"); return; }
+  queue.push({ id: Date.now(), name: name||"Evento "+(queue.length+1), url, stake, type, status:"ready", results:[] });
+  saveQueue();
+  document.getElementById("qName").value = "";
+  document.getElementById("qUrl").value = "";
+  renderQueue();
+  toast("Agregado a la cola ✓");
+}
+
+function removeFromQueue(id) { queue=queue.filter(i=>i.id!==id); saveQueue(); renderQueue(); }
+
+function clearDone() {
+  queue = queue.filter(i => i.status==="ready"||i.status==="firing");
+  saveQueue(); renderQueue(); toast("Ejecutadas eliminadas");
+}
+
+function renderQueue() {
+  const el    = document.getElementById("queueList");
+  const ready = queue.filter(i=>i.status==="ready");
+  document.getElementById("sumQueue").textContent = ready.length;
+  document.getElementById("sumOk").textContent    = queue.filter(i=>i.status==="done-ok").length;
+  document.getElementById("sumFail").textContent  = queue.filter(i=>i.status==="done-fail").length;
+
+  const btn = document.getElementById("fireBtn");
+  if (isFiring) {
+    btn.className = "firing";
+    btn.textContent = "⚡ DISPARANDO EN TODAS LAS CUENTAS...";
+  } else if (!ready.length) {
+    btn.className = "empty";
+    btn.textContent = queue.length ? "✅ Todo ejecutado" : "🚫 Sin eventos en cola";
+  } else {
+    btn.className = "";
+    btn.textContent = `🚀 DISPARAR ${ready.length} APUESTA${ready.length>1?"S":""} AHORA`;
+  }
+
+  if (!queue.length) {
+    el.innerHTML = '<div class="empty-state">Cola vacía.<br>Carga eventos con anticipación y<br>dispara todos a la vez.</div>';
+    return;
+  }
+
+  el.innerHTML = queue.map((item,idx) => {
+    const statusIcon = {ready:"🔵",firing:"⚡","done-ok":"✅","done-fail":"❌"}[item.status]||"⬜";
+    const statusText = {ready:"En cola",firing:"Disparando...","done-ok":"OK","done-fail":"Error"}[item.status]||"";
+    const resultsHtml = item.results.length
+      ? `<div class="qi-results">${item.results.map(r=>`<span class="chip ${r.success?'chip-ok':'chip-fail'}">${r.name}: ${r.success?'✓':'✗'}</span>`).join("")}</div>` : "";
+    return `
+      <div class="queue-item ${item.status}">
+        <div class="qi-header">
+          <div class="qi-num ${item.status}">${idx+1}</div>
+          <div class="qi-name">${item.name}</div>
+          <div class="qi-actions">
+            ${item.status==="ready"?`<button class="btn btn-primary btn-sm" onclick="fireSingle(${item.id})">▶ Solo</button>`:""}
+            ${item.status!=="firing"?`<button class="btn btn-danger btn-sm" onclick="removeFromQueue(${item.id})">✕</button>`:""}
+          </div>
+        </div>
+        <div class="qi-url">${item.url.substring(0,55)}${item.url.length>55?"...":""}</div>
+        <div class="qi-meta">
+          <span class="qi-stake">€${item.stake}</span>
+          <span class="qi-type">${item.type}</span>
+          <span class="qi-status">${statusIcon} ${statusText}</span>
+        </div>
+        ${resultsHtml}
+      </div>`;
+  }).join("");
+}
+
+async function fireAll() {
+  const ready = queue.filter(i=>i.status==="ready");
+  if (!ready.length||isFiring) return;
+  if (!accounts.filter(a=>a.status==="connected").length) { toast("Conecta las cuentas primero","error"); return; }
+  isFiring = true;
+  ready.forEach(item=>item.status="firing");
+  renderQueue();
+  await Promise.all(ready.map(item=>executeBet(item)));
+  isFiring = false;
+  const ok = ready.filter(i=>i.status==="done-ok").length;
+  renderQueue();
+  toast(`${ok}/${ready.length} apuestas completadas`, ok===ready.length?"success":"info");
+  betHistory.unshift({ date: new Date().toISOString(), bets: ready.map(i=>({name:i.name,stake:i.stake,type:i.type,results:i.results})) });
+  localStorage.setItem("bh3", JSON.stringify(betHistory.slice(0,50)));
+  saveQueue();
+}
+
+async function fireSingle(id) {
+  const item = queue.find(i=>i.id===id);
+  if (!item||item.status!=="ready") return;
+  if (!accounts.filter(a=>a.status==="connected").length) { toast("Conecta las cuentas primero","error"); return; }
+  item.status="firing"; renderQueue();
+  await executeBet(item);
+  renderQueue(); saveQueue();
+  toast(`${item.results.filter(r=>r.success).length}/${item.results.length} cuentas OK`);
+}
+
+async function executeBet(item) {
+  try {
+    const r = await fetch(`${API}/api/placebet`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({url:item.url,stake:item.stake,type:item.type})
+    });
+    const data = await r.json();
+    if (data.error) { item.status="done-fail"; item.results=[{name:"Error",success:false}]; }
+    else { item.results=data.results||[]; item.status=item.results.every(r=>r.success)?"done-ok":"done-fail"; }
+  } catch(e) { item.status="done-fail"; item.results=[{name:"Error de red",success:false}]; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ACCOUNTS
+// ══════════════════════════════════════════════════════════════════
+async function loadAccounts() {
+  try {
+    const r = await fetch(`${API}/api/accounts`);
+    accounts = await r.json();
+    renderAccounts();
+    const c = accounts.filter(a=>a.status==="connected").length;
+    document.getElementById("connBadge").textContent = `${c}/${accounts.length} ●`;
+  } catch(e) {}
+}
+
+function renderAccounts() {
+  const el = document.getElementById("accountsList");
+  if (!accounts.length) { el.innerHTML='<div class="empty-state">Sin cuentas. Agrega la primera.</div>'; return; }
+  el.innerHTML = accounts.map(a=>`
+    <div class="account-card">
+      <div class="account-dot ${dotClass(a.status)}"></div>
+      <div class="account-info">
+        <div class="account-name">${a.name}</div>
+        <div class="account-user">${a.username} · ${a.country_code}</div>
+        <div class="account-user" style="color:${statusColor(a.status)}">${statusLabel(a.status)}${a.current_ip?` · <span style="color:var(--green)">${a.current_ip}</span>`:""}</div>
+      </div>
+      <div class="account-actions">
+        ${a.status==="connected"
+          ?`<button class="btn btn-ghost btn-sm" onclick="getBalance(${a.id})">💰</button><button class="btn btn-ghost btn-sm" onclick="logoutAccount(${a.id})">Salir</button>`
+          :`<button class="btn btn-primary btn-sm" onclick="loginOne(${a.id})">Conectar</button>`}
+        <button class="btn btn-danger btn-sm" onclick="deleteAccount(${a.id})">✕</button>
+      </div>
+    </div>`).join("");
+}
+
+const dotClass   = s=>({connected:"dot-connected",disconnected:"dot-disconnected",error:"dot-error",loading:"dot-loading"}[s]||"dot-disconnected");
+const statusColor= s=>({connected:"var(--green)",error:"var(--red)",loading:"var(--yellow)"}[s]||"var(--muted)");
+const statusLabel= s=>({connected:"✓ Conectada",disconnected:"Desconectada",error:"⚠ Error",loading:"Conectando..."}[s]||s);
+
+function toggleAddForm() { document.getElementById("addForm").classList.toggle("open"); }
+
+async function addAccount() {
+  const body={name:document.getElementById("newName").value,username:document.getElementById("newUsername").value,password:document.getElementById("newPassword").value,country_code:document.getElementById("newCountry").value,proxy:document.getElementById("newProxy").value,api_key:document.getElementById("newApiKey").value};
+  if(!body.name||!body.username||!body.password||!body.country_code||!body.api_key){toast("Completa todos los campos","error");return;}
+  const r=await fetch(`${API}/api/accounts`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const data=await r.json();
+  if(data.error){toast(data.error,"error");return;}
+  toast("Cuenta agregada ✓");
+  document.getElementById("addForm").classList.remove("open");
+  ["newName","newUsername","newPassword","newCountry","newProxy","newApiKey"].forEach(id=>document.getElementById(id).value="");
+  loadAccounts();
+}
+
+async function deleteAccount(id){if(!confirm("¿Eliminar?"))return;await fetch(`${API}/api/accounts/${id}`,{method:"DELETE"});toast("Eliminada");loadAccounts();}
+
+async function loginOne(id) {
+  const a=accounts.find(a=>a.id===id);if(a)a.status="loading";renderAccounts();
+  toast("Conectando y verificando IP...", "info");
+  const r=await fetch(`${API}/api/accounts/${id}/login`,{method:"POST"});
+  const data=await r.json();
+  if(data.error) toast(data.error,"error");
+  else if(data.success) toast(`Conectada ✓ — IP: ${data.ip||"desconocida"}`);
+  else toast(`Error: ${data.response?.detail||"desconocido"}`,"error");
+  loadAccounts();
+}
+
+async function logoutAccount(id){await fetch(`${API}/api/accounts/${id}/logout`,{method:"POST"});toast("Sesión cerrada");loadAccounts();}
+
+async function getBalance(id){
+  const r=await fetch(`${API}/api/accounts/${id}/balance`);
+  const d=await r.json();
+  if(d.balance!==undefined) toast(`Saldo: ${d.balance} | Retirable: ${d.withdrawable}`);
+  else toast("Error obteniendo saldo","error");
+}
+
+async function loginAll() {
+  toast("Conectando y verificando IPs — esto puede tardar un momento...", "info");
+  accounts.forEach(a=>a.status="loading"); renderAccounts();
+  const r=await fetch(`${API}/api/login-all`,{method:"POST"});
+  const data=await r.json();
+  const s=data.summary||{};
+  toast(`${s.connected||0}/${s.total||0} conectadas`);
+  loadAccounts();
+  loadIPHistory();
+}
+
+async function keepaliveAll(){await fetch(`${API}/api/keepalive`,{method:"POST"});toast("Keepalive ✓");}
+
+// ══════════════════════════════════════════════════════════════════
+// IP HISTORY
+// ══════════════════════════════════════════════════════════════════
+async function loadIPHistory() {
+  try {
+    const r = await fetch(`${API}/api/ip-history`);
+    const data = await r.json();
+    renderIPHistory(data);
+  } catch(e) {
+    document.getElementById("ipHistoryList").innerHTML = '<div class="empty-state">Error cargando historial.</div>';
+  }
+}
+
+function renderIPHistory(data) {
+  const banner = document.getElementById("ipConflictBanner");
+  const el     = document.getElementById("ipHistoryList");
+
+  // Conflict banner
+  if (data.conflicts && data.conflicts.length > 0) {
+    banner.style.display = "block";
+    banner.className = "conflict-banner";
+    banner.innerHTML = `<b style="color:var(--red)">⚠ ${data.conflicts.length} conflicto(s) de IP detectado(s)</b><br>
+      ${data.conflicts.map(c=>`<span style="font-size:11px;font-family:'Space Mono',monospace">${c.ip} → ${c.accounts.join(" y ")}</span>`).join("<br>")}`;
+  } else if (data.total_ips_recorded > 0) {
+    banner.style.display = "block";
+    banner.className = "ok-banner";
+    banner.innerHTML = `<b style="color:var(--green)">✓ Sin conflictos</b> <span style="font-size:11px;color:var(--muted)">— ${data.total_ips_recorded} IPs registradas en total</span>`;
+  } else {
+    banner.style.display = "none";
+  }
+
+  if (!data.accounts || !data.accounts.length) {
+    el.innerHTML = '<div class="empty-state">Conecta las cuentas para ver el registro de IPs.</div>';
+    return;
+  }
+
+  el.innerHTML = data.accounts.map(a => {
+    const hasCurrentIP = a.current_ip && a.current_ip !== "null";
+
+    // Login attempt log (from last connection)
+    const logHtml = a.ip_log && a.ip_log.length ? `
+      <div style="margin-top:10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px">Último proceso de conexión</div>
+        ${a.ip_log.map(entry => {
+          const isOk   = entry.status && entry.status.includes("✓");
+          const isFail = entry.status && entry.status.includes("✗");
+          const cls    = isOk ? "log-ok" : isFail ? "log-fail" : "log-warn";
+          return `<div class="log-entry ${cls}">
+            <span class="log-ts">${entry.ts||""}</span>
+            <span class="log-ip">${entry.ip}</span>
+            <span class="log-status">${entry.status||""}</span>
+          </div>`;
+        }).join("")}
+      </div>` : "";
+
+    // Full IP history table
+    const tableHtml = a.all_ips && a.all_ips.length ? `
+      <div style="margin-top:10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:6px">Todas las IPs usadas (${a.all_ips.length})</div>
+        <table class="ip-table">
+          <thead><tr><th>IP</th><th>Primer uso</th><th>Último uso</th><th>Veces</th></tr></thead>
+          <tbody>
+            ${a.all_ips.map(ip => `
+              <tr>
+                <td style="color:var(--text)">${ip.ip}</td>
+                <td style="color:var(--muted)">${ip.first_seen}</td>
+                <td style="color:var(--muted)">${ip.last_seen}</td>
+                <td><span class="times-badge">${ip.times_used}x</span></td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>` : `<div style="font-size:11px;color:var(--muted);margin-top:6px">Sin IPs registradas aún</div>`;
+
+    return `
+      <div class="ip-account-block">
+        <div class="ip-account-header">
+          <div class="ip-account-name">${a.name}</div>
+          <div class="ip-current ${hasCurrentIP?"":a.status==="connected"?"":"none"}">
+            ${hasCurrentIP ? a.current_ip : a.status==="connected" ? "detectando..." : "—"}
+          </div>
+        </div>
+        <div style="font-size:11px;color:${statusColor(a.status)}">${statusLabel(a.status)}</div>
+        ${logHtml}
+        ${tableHtml}
+      </div>`;
+  }).join("");
+}
+
+async function clearIPHistory() {
+  if (!confirm("¿Borrar todo el historial de IPs?\nLas cuentas podrán volver a usar IPs anteriores.")) return;
+  await fetch(`${API}/api/ip-history/clear`, {method:"POST"});
+  toast("Historial de IPs borrado");
+  loadIPHistory();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// BET HISTORY
+// ══════════════════════════════════════════════════════════════════
+function renderBetHistory() {
+  const el = document.getElementById("historialList");
+  if (!betHistory.length) { el.innerHTML='<div class="empty-state">Sin historial.</div>'; return; }
+  el.innerHTML = betHistory.map(entry => {
+    const date = new Date(entry.date).toLocaleString("es");
+    const bets = entry.bets||[];
+    return `<div class="hist-item">
+      <div class="hist-header">
+        <span class="hist-date">${date}</span>
+        <span class="badge badge-ok">${bets.length} evento${bets.length>1?"s":""}</span>
+      </div>
+      ${bets.map(b=>{const ok=b.results?.filter(r=>r.success).length||0;const total=b.results?.length||0;return`<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12px"><span>${b.name}</span><span style="color:${ok===total?"var(--green)":"var(--red)"}">€${b.stake} · ${ok}/${total}</span></div>`;}).join("")}
+    </div>`;
+  }).join("");
+}
+
+function clearBetHistory(){if(!confirm("¿Borrar historial?"))return;betHistory=[];localStorage.removeItem("bh3");renderBetHistory();toast("Borrado");}
+
+// ── Auto keepalive & refresh ───────────────────────────────────────────────
+setInterval(keepaliveAll, 9*60*1000);
+loadAccounts();
+setInterval(loadAccounts, 30000);
+renderQueue();
+</script>
+</body>
+</html>
