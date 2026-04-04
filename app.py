@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import json
 import os
 import time
@@ -135,13 +137,13 @@ def qrsolver_request(method, endpoint, api_key, body=None, params=None):
     headers = get_headers(api_key)
     try:
         if method == "GET":
-            r = requests.get(url, headers=headers, params=params, timeout=30)
+            r = requests.get(url, headers=headers, params=params, timeout=30, verify=False)
         elif method == "POST":
-            r = requests.post(url, headers=headers, json=body, timeout=60)
+            r = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
         elif method == "PATCH":
-            r = requests.patch(url, headers=headers, json=body, timeout=30)
+            r = requests.patch(url, headers=headers, json=body, timeout=30, verify=False)
         elif method == "DELETE":
-            r = requests.delete(url, headers=headers, timeout=30)
+            r = requests.delete(url, headers=headers, timeout=30, verify=False)
         return r.status_code, r.json() if r.content else {}
     except Exception as e:
         return 0, {"error": str(e)}
