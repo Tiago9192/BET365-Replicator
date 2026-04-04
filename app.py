@@ -531,25 +531,37 @@ def load_runners():
     if not account:
         return jsonify({"error": "Necesitas al menos una cuenta configurada con API key"}), 400
 
-    api_key = account["api_key"]
-    proxy   = account.get("proxy", "")
+    api_key    = account["api_key"]
+    session_id = account.get("session_id")
 
-    # Create guest session — proxy is required by the API
-    guest_body = {"domain": "https://www.bet365.com/"}
-    if proxy:
-        guest_body["proxy"] = proxy
-
-    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
-    if gs != 200 or "session_id" not in gr:
-        return jsonify({"error": f"Error sesión guest: {gr}"}), 400
-
-    guest_id = gr["session_id"]
-
-    # Fetch prematch data stream
-    _, pr = qrsolver_request("GET",
-                             f"/api/placebet/guest/{guest_id}/prematch",
-                             api_key,
-                             params={"pd": pd})
+    # Try to use existing logged-in session first (avoids using extra slots)
+    # Fall back to guest session only if no active session
+    if session_id:
+        # Use the logged-in session's prematch endpoint
+        _, pr = qrsolver_request("GET",
+                                 f"/api/placebet/guest/{session_id}/prematch",
+                                 api_key,
+                                 params={"pd": pd})
+        raw = pr if isinstance(pr, str) else json.dumps(pr)
+        # If that didn't work, try the regular session prematch
+        if not raw or raw == '{}' or raw == 'null':
+            _, pr = qrsolver_request("GET",
+                                     f"/api/placebet/session/{session_id}/status/",
+                                     api_key)
+    else:
+        # No active session — try guest (needs a free slot)
+        proxy      = account.get("proxy", "")
+        guest_body = {"domain": "https://www.bet365.com/"}
+        if proxy:
+            guest_body["proxy"] = proxy
+        gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
+        if gs != 200 or "session_id" not in gr:
+            return jsonify({"error": f"Error sesión guest: {gr}. Conecta una cuenta primero."}), 400
+        session_id = gr["session_id"]
+        _, pr = qrsolver_request("GET",
+                                 f"/api/placebet/guest/{session_id}/prematch",
+                                 api_key,
+                                 params={"pd": pd})
 
     raw     = pr if isinstance(pr, str) else json.dumps(pr)
     runners = parse_prematch_runners(raw)
