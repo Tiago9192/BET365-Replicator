@@ -154,9 +154,15 @@ def parse_bet365_url(url):
         fragment = parsed.fragment
         if not fragment:
             return None, "No se encontró el hash en la URL"
+        # Convert slashes to # — keep leading # as the API expects it
+        # Doc example: #AC#B1#C1#D1002#G938#J20#Q1#F^3#
         pd = fragment.replace("/", "#")
-        if pd.startswith("#"):
-            pd = pd[1:]
+        # Ensure it starts with # (fragment starts with / which becomes #)
+        if not pd.startswith("#"):
+            pd = "#" + pd
+        # Remove trailing # if present
+        if pd.endswith("#"):
+            pd = pd[:-1]
         return pd, None
     except Exception as e:
         return None, str(e)
@@ -537,17 +543,23 @@ def load_runners():
     # Try to use existing logged-in session first (avoids using extra slots)
     # Fall back to guest session only if no active session
     if session_id:
-        # Use the logged-in session's prematch endpoint
-        _, pr = qrsolver_request("GET",
+        # Try multiple PD formats — API can be strict about format
+        pd_formats = [
+            pd,                                    # #AC#B73#...
+            pd.lstrip("#"),                        # AC#B73#...
+            pd.replace("#", "/").lstrip("/"),      # AC/B73/...
+            "/" + pd.replace("#", "/").lstrip("/") # /AC/B73/...
+        ]
+        pr = {}
+        for pd_try in pd_formats:
+            status_pr, pr = qrsolver_request("GET",
                                  f"/api/placebet/guest/{session_id}/prematch",
                                  api_key,
-                                 params={"pd": pd})
-        raw = pr if isinstance(pr, str) else json.dumps(pr)
-        # If that didn't work, try the regular session prematch
-        if not raw or raw == '{}' or raw == 'null':
-            _, pr = qrsolver_request("GET",
-                                     f"/api/placebet/session/{session_id}/status/",
-                                     api_key)
+                                 params={"pd": pd_try})
+            raw_try = pr if isinstance(pr, str) else json.dumps(pr)
+            if "invalid" not in raw_try.lower() and "error" not in raw_try.lower():
+                pd = pd_try  # use this working format
+                break
     else:
         # No active session — try guest (needs a free slot)
         proxy      = account.get("proxy", "")
@@ -572,7 +584,7 @@ def load_runners():
         "sport_id":   sport_id,
         "fi":         fi,
         "event_id":   event_id,
-        "raw_sample": raw[:400]   # for debugging if runners is empty
+        "raw_sample": raw[:600]
     })
 
 # ══════════════════════════════════════════════════════════════════
