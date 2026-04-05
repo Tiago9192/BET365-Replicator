@@ -711,10 +711,38 @@ function clearBetHistory(){if(!confirm("¿Borrar historial?"))return;betHistory=
 // ── Bookmarklet setup ────────────────────────────────────────────────────────
 function setupBookmarklet() {
   const appUrl = window.location.origin;
-  const bmCode = "javascript:(function(){var APP='" + appUrl + "';var runners=[];var url=window.location.href;var fiMatch=url.match(/F(\\d+)/);var fi=fiMatch?fiMatch[1]:'0';var sportMatch=url.match(/B(\\d+)/);var sport=sportMatch?sportMatch[1]:'73';var rows=document.querySelectorAll('.rh-af');rows.forEach(function(row,i){var nameEl=row.querySelector('p.sr-dc6edd')||row.querySelector('p');var oddEls=row.querySelectorAll('span.rul-ce0412');var oddEl=oddEls[oddEls.length-1];if(nameEl&&oddEl){var name=nameEl.innerText.trim();var odd=oddEl.innerText.trim();if(name&&odd&&parseFloat(odd)>1.0&&name.length>1){runners.push({name:name,odd:odd,fi:fi,sport_id:parseInt(sport),index:i});}}});if(runners.length===0){alert('No se encontraron caballos.\\nAsegurate de estar en una carrera ABIERTA en Bet365.');return;}fetch(APP+'/api/race/from-browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runners:runners,url:url,fi:parseInt(fi),sport_id:parseInt(sport)})}).then(function(r){return r.json()}).then(function(d){if(d.success)alert('\u2713 '+d.count+' caballos cargados!\\nVuelve a tu app.');else alert('Error: '+(d.error||'?'));}).catch(function(e){alert('Error: '+e.message);});})();";
+  // Exact bet365 selectors found via DOM inspection:
+  // Horse name: span.rh-2c inside div.rh-4
+  // WIN odd: first span.rul-ce0412 (Ganador column)
+  const bmCode = "javascript:(function(){" +
+    "var APP='" + "'+appUrl+'" + "';" +
+    "var runners=[];var url=window.location.href;" +
+    "var fiMatch=url.match(/F(\\d+)/);var fi=fiMatch?fiMatch[1]:'0';" +
+    "var sportMatch=url.match(/B(\\d+)/);var sport=sportMatch?sportMatch[1]:'73';" +
+    "var rows=document.querySelectorAll('.rh-af');" +
+    "rows.forEach(function(row,i){" +
+      "var nameEl=row.querySelector('span.rh-2c');" +
+      "var oddEls=row.querySelectorAll('span.rul-ce0412');" +
+      "var oddEl=oddEls[0];" +  // First span = Ganador (WIN)
+      "if(nameEl&&oddEl){" +
+        "var name=nameEl.innerText.trim();" +
+        "var odd=oddEl.innerText.trim();" +
+        "if(name&&odd&&parseFloat(odd)>1.0&&name.length>1){" +
+          "runners.push({name:name,odd:odd,fi:fi,sport_id:parseInt(sport),index:i});" +
+        "}" +
+      "}" +
+    "});" +
+    "if(runners.length===0){alert('No se encontraron caballos.\\nAsegurate de estar en una carrera ABIERTA en Bet365.');return;}" +
+    "fetch(APP+'/api/race/from-browser',{method:'POST',headers:{'Content-Type':'application/json'}," +
+      "body:JSON.stringify({runners:runners,url:url,fi:parseInt(fi),sport_id:parseInt(sport)})})" +
+    ".then(function(r){return r.json()})" +
+    ".then(function(d){if(d.success)alert('\u2713 '+d.count+' caballos cargados!\\nVuelve a tu app.');else alert('Error: '+(d.error||'?'));})" +
+    ".catch(function(e){alert('Error: '+e.message);});" +
+  "})();";
   const btn = document.getElementById("bookmarkletBtn");
   if (btn) btn.href = bmCode;
 }
+
 
 
 async function checkForNewRace() {
