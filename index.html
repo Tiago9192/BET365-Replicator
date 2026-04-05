@@ -174,36 +174,18 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 
   <!-- Race loader -->
   <div class="card">
-    <div class="card-title">Cargar carrera</div>
-
-    <!-- Step 1: Bookmarklet instructions -->
-    <div id="bookmarkletInstructions" style="margin-bottom:12px">
-      <div style="font-size:12px;color:var(--text);line-height:1.7;margin-bottom:10px">
-        <b>Cómo cargar una carrera:</b><br>
-        1. Abre Bet365 en este mismo navegador<br>
-        2. Ve a la página de la carrera que quieres apostar<br>
-        3. Toca el botón <b style="color:var(--green)">📋 Cargar en App</b> (que arrastrarás a tus favoritos)<br>
-        4. Los caballos aparecen aquí automáticamente
-      </div>
-
-      <!-- Bookmarklet drag button -->
-      <div style="background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:14px;text-align:center;margin-bottom:10px">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Arrastra este botón a tu barra de favoritos:</div>
-        <a id="bookmarkletBtn"
-           style="display:inline-block;background:var(--green);color:#000;font-weight:800;font-family:Syne,sans-serif;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:13px"
-           href="#">
-          📋 Cargar en App
-        </a>
-        <div style="font-size:10px;color:var(--muted);margin-top:8px">En móvil: guárdalo como marcador y edita la URL</div>
-      </div>
+    <div class="card-title">Link de la carrera</div>
+    <div class="form-group">
+      <input class="form-input" id="raceUrlInput" 
+        placeholder="https://www.bet365.com/#/AC/B73/..."
+        style="margin-bottom:8px">
     </div>
-
-    <!-- Manual refresh button -->
-    <button class="btn btn-ghost" style="width:100%;margin-bottom:8px" onclick="checkForNewRace()">
-      🔄 Verificar si hay carrera cargada
+    <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="loadFromUrl()">
+      🏇 Cargar caballos
     </button>
-
-    <div id="loadStatus" style="font-size:11px;color:var(--muted)">Abre Bet365, ve a la carrera y toca el marcador</div>
+    <div id="loadStatus" style="font-size:11px;color:var(--muted)">
+      Pega el link de la carrera de Bet365 y toca Cargar
+    </div>
   </div>
 
   <!-- Runners list -->
@@ -744,6 +726,88 @@ function setupBookmarklet() {
 }
 
 
+
+async function loadFromUrl() {
+  const url = document.getElementById("raceUrlInput").value.trim();
+  if (!url) { toast("Pega el link de la carrera primero", "error"); return; }
+  if (!url.includes("bet365")) { toast("El link debe ser de bet365.com", "error"); return; }
+
+  document.getElementById("loadStatus").textContent = "Abriendo carrera en Bet365...";
+
+  // Extract app URL for the script to send data back
+  const appUrl = window.location.origin;
+
+  // Build extraction script that runs in bet365 tab
+  const extractScript = `
+    (function(){
+      var attempts = 0;
+      var maxAttempts = 20;
+      function extract() {
+        attempts++;
+        var rows = document.querySelectorAll('.rh-af');
+        var runners = [];
+        rows.forEach(function(row, i) {
+          var nameEl = row.querySelector('span.rh-2c');
+          var oddEls = row.querySelectorAll('span.rul-ce0412');
+          var oddEl = oddEls[0];
+          if (nameEl && oddEl) {
+            var name = nameEl.innerText.trim();
+            var odd = oddEl.innerText.trim();
+            if (name && odd && parseFloat(odd) > 1.0 && name.length > 1) {
+              var fiMatch = window.location.href.match(/F(\d+)/);
+              var sportMatch = window.location.href.match(/B(\d+)/);
+              runners.push({
+                name: name, odd: odd,
+                fi: fiMatch ? fiMatch[1] : '0',
+                sport_id: sportMatch ? parseInt(sportMatch[1]) : 73,
+                index: i
+              });
+            }
+          }
+        });
+        if (runners.length === 0 && attempts < maxAttempts) {
+          setTimeout(extract, 500);
+          return;
+        }
+        if (runners.length === 0) {
+          alert('No se encontraron caballos. Asegurate de que la carrera este abierta.');
+          return;
+        }
+        fetch('${appUrl}/api/race/from-browser', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({runners: runners, url: window.location.href,
+            fi: runners[0] ? parseInt(runners[0].fi) : 0,
+            sport_id: runners[0] ? runners[0].sport_id : 73})
+        }).then(r => r.json()).then(d => {
+          if (d.success) {
+            alert('✓ ' + d.count + ' caballos cargados! Vuelve a tu app.');
+            window.close();
+          }
+        }).catch(e => alert('Error: ' + e.message));
+      }
+      setTimeout(extract, 2000);
+    })();
+  `;
+
+  // Open bet365 in new tab then inject script
+  const newTab = window.open(url, '_blank');
+  
+  // Wait for tab to load then inject extraction script
+  setTimeout(function() {
+    try {
+      newTab.eval(extractScript);
+    } catch(e) {
+      // Cross-origin block — show instructions instead
+      document.getElementById("loadStatus").textContent = 
+        "✓ Bet365 abierto. Cuando cargue la carrera, toca el botón 📋 de la barra de favoritos.";
+    }
+    // Poll for data
+    startRacePolling();
+  }, 3000);
+
+  toast("Abriendo Bet365... espera", "info");
+}
 
 async function checkForNewRace() {
   document.getElementById("loadStatus").textContent = "Verificando...";
