@@ -895,6 +895,139 @@ def race_last():
     return jsonify(race)
 
 
+@app.route("/test-prematch")
+def test_prematch():
+    """
+    Test visual de guest/prematch.
+    Abre en el navegador: /test-prematch?url=https://www.bet365.com/#/AC/B73/...
+    Si no se pasa url, usa la carrera de ejemplo hardcodeada.
+    Requiere al menos una cuenta con api_key y proxy en accounts.json.
+    """
+    url = request.args.get("url", "https://www.bet365.com/#/AC/B73/C104/D20260406/E21134485/F192493810/P17/")
+
+    # Obtener api_key y proxy de la primera cuenta disponible
+    accounts = load_accounts()
+    account  = next((a for a in accounts if a.get("api_key")), None)
+    if not account:
+        return "<h2 style='color:red'>❌ No hay cuentas configuradas. Añade una cuenta primero.</h2>", 400
+
+    api_key = account["api_key"]
+    proxy   = account.get("proxy", "")
+
+    # Construir PD hash
+    from urllib.parse import urlparse
+    fragment = urlparse(url).fragment
+    pd = fragment.replace("/", "#")
+    if not pd.startswith("#"): pd = "#" + pd
+    if not pd.endswith("#"):   pd = pd + "#"
+
+    log = []
+    log.append(f"URL:      {url}")
+    log.append(f"Fragment: {fragment}")
+    log.append(f"PD hash:  {pd}")
+    log.append(f"Cuenta:   {account['name']} | Proxy: {'✓' if proxy else '✗ sin proxy'}")
+    log.append("─" * 60)
+
+    # 1. Crear guest session
+    guest_body = {"domain": "https://www.bet365.com/"}
+    if proxy:
+        guest_body["proxy"] = proxy
+
+    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
+    log.append(f"[1] POST /guest/create/  →  status={gs}  resp={json.dumps(gr)[:200]}")
+
+    if gs != 200 or "session_id" not in gr:
+        html = _test_html("❌ Error creando guest session", log, [], pd, url)
+        return html, 500
+
+    guest_id = gr["session_id"]
+    log.append(f"    guest_id: {guest_id}")
+    log.append("─" * 60)
+
+    # 2. Llamar a prematch con el PD hash
+    status, resp = qrsolver_request(
+        "GET",
+        f"/api/placebet/guest/{guest_id}/prematch",
+        api_key,
+        params={"pd": pd}
+    )
+
+    # La respuesta puede ser texto plano o JSON
+    raw = resp if isinstance(resp, str) else json.dumps(resp)
+    log.append(f"[2] GET /guest/{guest_id[:8]}…/prematch?pd={pd[:30]}…")
+    log.append(f"    status={status}")
+    log.append(f"    response ({len(raw)} chars):")
+    log.append(raw[:1500])
+    log.append("─" * 60)
+
+    # 3. Parsear runners
+    runners = parse_prematch_runners(raw)
+    log.append(f"[3] Runners parseados: {len(runners)}")
+    for r in runners:
+        log.append(f"    id={r['id']}  odd={r['odd_raw']} ({r['odd_dec']})  {r['name']}")
+
+    # 4. Limpiar guest session
+    qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
+    log.append("─" * 60)
+    log.append("[4] Guest session eliminada ✓")
+
+    title = f"✅ {len(runners)} runners encontrados" if runners else "⚠️ 0 runners — ver respuesta raw"
+    return _test_html(title, log, runners, pd, url)
+
+
+def _test_html(title, log, runners, pd, url):
+    ok    = title.startswith("✅")
+    color = "#00cc66" if ok else ("#ff8800" if title.startswith("⚠") else "#ff4455")
+
+    runners_html = ""
+    if runners:
+        rows = "".join(
+            f"<tr><td>{r['id']}</td><td><b>{r['name']}</b></td>"
+            f"<td style='color:#00cc66'>{r['odd_raw']}</td>"
+            f"<td style='color:#aaa'>{r['odd_dec']}</td></tr>"
+            for r in runners
+        )
+        runners_html = f"""
+        <h3 style='color:#00cc66;margin-top:28px'>Runners ({len(runners)})</h3>
+        <table border='1' cellpadding='6' cellspacing='0'
+               style='border-collapse:collapse;width:100%;font-family:monospace;font-size:13px'>
+          <thead style='background:#1a2a1a;color:#aaa'>
+            <tr><th>selection_id</th><th>Nombre</th><th>Cuota (raw)</th><th>Decimal</th></tr>
+          </thead>
+          <tbody>{rows}</tbody>
+        </table>"""
+
+    log_html = "\n".join(log).replace("<", "&lt;").replace(">", "&gt;")
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset='UTF-8'>
+<title>Test prematch</title>
+<style>
+  body{{background:#0a0a0f;color:#e0e0e0;font-family:sans-serif;padding:24px;max-width:900px;margin:0 auto}}
+  h1{{color:{color}}} h2{{color:#888;font-size:14px;font-weight:normal;margin-top:4px}}
+  pre{{background:#111;border:1px solid #2a2a3a;border-radius:8px;padding:16px;
+       font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}}
+  table{{background:#111}} th,td{{border-color:#2a2a3a !important;padding:8px 12px}}
+  .url-box{{background:#111;border:1px solid #333;border-radius:6px;padding:10px 14px;
+             font-family:monospace;font-size:12px;color:#88aaff;margin-bottom:20px}}
+  .tip{{background:#1a1a00;border:1px solid #555500;border-radius:6px;
+         padding:10px 14px;font-size:13px;color:#cccc00;margin-top:20px}}
+</style></head>
+<body>
+<h1>{title}</h1>
+<h2>URL probada</h2>
+<div class='url-box'>{url}</div>
+<h2>PD hash enviado: <span style='color:#88aaff'>{pd}</span></h2>
+{runners_html}
+<h3 style='margin-top:28px;color:#888'>Log completo</h3>
+<pre>{log_html}</pre>
+<div class='tip'>
+  💡 Para probar otra carrera: <br>
+  <code>/test-prematch?url=https://www.bet365.com/#/AC/B73/C104/D.../F.../</code>
+</div>
+</body></html>"""
+
+
 @app.route("/")
 def index():
     if os.path.exists("index.html"):
