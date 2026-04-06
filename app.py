@@ -1,6 +1,3 @@
-
-Copier
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -12,29 +9,29 @@ import time
 import concurrent.futures
 from urllib.parse import urlparse
 from datetime import datetime
- 
+
 app = Flask(__name__)
 CORS(app)
- 
+
 DATA_FILE    = "accounts.json"
 IP_HIST_FILE = "ip_history.json"
 QRSOLVER_BASE = "https://qrsolver.com"
 MAX_IP_RETRIES = 15   # Max reconnection attempts to get a fresh unique IP
- 
+
 # ══════════════════════════════════════════════════════════════════
 # STORAGE
 # ══════════════════════════════════════════════════════════════════
- 
+
 def load_accounts():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
             return json.load(f)
     return []
- 
+
 def save_accounts(accounts):
     with open(DATA_FILE, "w") as f:
         json.dump(accounts, f, indent=2)
- 
+
 # ── IP History Registry ────────────────────────────────────────────────────────
 # {
 #   "190.12.34.56": {
@@ -46,17 +43,17 @@ def save_accounts(accounts):
 #   },
 #   ...
 # }
- 
+
 def load_ip_history():
     if os.path.exists(IP_HIST_FILE):
         with open(IP_HIST_FILE) as f:
             return json.load(f)
     return {}
- 
+
 def save_ip_history(history):
     with open(IP_HIST_FILE, "w") as f:
         json.dump(history, f, indent=2)
- 
+
 def record_ip(ip, account_id, account_name):
     """Add or update an IP entry in the permanent history."""
     history = load_ip_history()
@@ -76,7 +73,7 @@ def record_ip(ip, account_id, account_name):
             "times_used":   1
         }
     save_ip_history(history)
- 
+
 def ip_used_by_other_account(ip, my_account_id):
     """
     Returns (True, owner_name) if this IP has been used by a DIFFERENT account.
@@ -89,17 +86,17 @@ def ip_used_by_other_account(ip, my_account_id):
     if entry["account_id"] == my_account_id:
         return False, None   # It's my own IP, OK to reuse
     return True, entry["account_name"]
- 
+
 def clear_ip_history():
     save_ip_history({})
- 
+
 # ══════════════════════════════════════════════════════════════════
 # PROXY / IP HELPERS
 # ══════════════════════════════════════════════════════════════════
- 
+
 def get_headers(api_key):
     return {"Authorization": api_key, "Content-Type": "application/json"}
- 
+
 def detect_ip_via_proxy(proxy_url):
     """Detect real outbound IP through the proxy. Tries 3 services."""
     if not proxy_url:
@@ -120,7 +117,7 @@ def detect_ip_via_proxy(proxy_url):
         except Exception:
             continue
     return None
- 
+
 def force_proxy_rotation(proxy_url):
     """
     For rotating/sticky mobile proxies, trigger a new IP by:
@@ -130,11 +127,11 @@ def force_proxy_rotation(proxy_url):
     """
     time.sleep(1.5)  # Brief pause so provider assigns a fresh IP
     return proxy_url  # Same URL, new connection = new IP from the pool
- 
+
 # ══════════════════════════════════════════════════════════════════
 # QRSOLVER API
 # ══════════════════════════════════════════════════════════════════
- 
+
 def qrsolver_request(method, endpoint, api_key, body=None, params=None):
     url = f"{QRSOLVER_BASE}{endpoint}"
     headers = get_headers(api_key)
@@ -150,7 +147,7 @@ def qrsolver_request(method, endpoint, api_key, body=None, params=None):
         return r.status_code, r.json() if r.content else {}
     except Exception as e:
         return 0, {"error": str(e)}
- 
+
 def parse_bet365_url(url):
     try:
         parsed = urlparse(url)
@@ -169,11 +166,11 @@ def parse_bet365_url(url):
         return pd, None
     except Exception as e:
         return None, str(e)
- 
+
 # ══════════════════════════════════════════════════════════════════
 # CORE: LOGIN WITH IP DEDUPLICATION
 # ══════════════════════════════════════════════════════════════════
- 
+
 def login_account_safe(account):
     """
     1. Detect current IP through proxy
@@ -188,25 +185,25 @@ def login_account_safe(account):
     proxy        = account.get("proxy", "")
     ip_log       = []
     detected_ip  = None
- 
+
     # ── Phase 1: Find a unique IP ──────────────────────────────────────────
     for attempt in range(1, MAX_IP_RETRIES + 1):
- 
+
         ip = detect_ip_via_proxy(proxy)
         entry = {
             "attempt": attempt,
             "ip": ip or "no_detectada",
             "ts": datetime.utcnow().strftime("%H:%M:%S")
         }
- 
+
         if not ip:
             entry["status"] = "⚠ no detectada"
             ip_log.append(entry)
             # If we can't detect the IP, proceed anyway (no proxy or detection failed)
             break
- 
+
         used_by_other, owner_name = ip_used_by_other_account(ip, account_id)
- 
+
         if not used_by_other:
             # ✓ IP is clean — record it and proceed
             entry["status"] = f"✓ libre — asignada a {account_name}"
@@ -219,7 +216,7 @@ def login_account_safe(account):
             entry["status"] = f"✗ ya usada por {owner_name} — rotando..."
             ip_log.append(entry)
             proxy = force_proxy_rotation(proxy)  # Triggers new IP on next connect
- 
+
     if not detected_ip and ip_log and ip_log[-1]["ip"] != "no_detectada":
         # Ran out of retries — record what we have but warn
         detected_ip = ip_log[-1]["ip"]
@@ -230,10 +227,11 @@ def login_account_safe(account):
             "ts": datetime.utcnow().strftime("%H:%M:%S"),
             "status": "⚠ agotados reintentos — usando esta IP"
         })
- 
+
     # ── Phase 2: Create session on QRSolver ───────────────────────────────
+    domain = account.get("domain", "https://www.bet365.com/")
     body = {
-        "domain": "https://www.bet365.com/",
+        "domain": domain,
         "username": account["username"],
         "password": account["password"],
         "country_code": account["country_code"],
@@ -241,7 +239,7 @@ def login_account_safe(account):
     }
     if account.get("proxy"):
         body["proxy"] = account["proxy"]
- 
+
     status, resp = qrsolver_request("POST", "/api/placebet/create/", api_key, body)
     if status != 200 or "session_id" not in resp:
         return {
@@ -251,14 +249,14 @@ def login_account_safe(account):
             "ip": detected_ip,
             "ip_log": ip_log
         }
- 
+
     session_id = resp["session_id"]
- 
+
     # ── Phase 3: Login ─────────────────────────────────────────────────────
     status2, resp2 = qrsolver_request(
         "POST", f"/api/placebet/session/{session_id}/login/", api_key, body
     )
- 
+
     success = status2 == 200
     return {
         "id":         account_id,
@@ -269,15 +267,15 @@ def login_account_safe(account):
         "ip_log":     ip_log,
         "response":   resp2
     }
- 
+
 # ══════════════════════════════════════════════════════════════════
 # ROUTES — ACCOUNTS
 # ══════════════════════════════════════════════════════════════════
- 
+
 @app.route("/api/accounts", methods=["GET"])
 def list_accounts():
     return jsonify(load_accounts())
- 
+
 @app.route("/api/accounts", methods=["POST"])
 def add_account():
     data = request.json
@@ -291,6 +289,7 @@ def add_account():
         "username":     data["username"],
         "password":     data["password"],
         "country_code": data["country_code"],
+        "domain":       data.get("domain", "https://www.bet365.com/"),
         "proxy":        data.get("proxy",""),
         "api_key":      data["api_key"],
         "session_id":   None,
@@ -301,13 +300,13 @@ def add_account():
     accounts.append(account)
     save_accounts(accounts)
     return jsonify({"success": True, "account": account})
- 
+
 @app.route("/api/accounts/<int:account_id>", methods=["DELETE"])
 def delete_account(account_id):
     accounts = [a for a in load_accounts() if a["id"] != account_id]
     save_accounts(accounts)
     return jsonify({"success": True})
- 
+
 # ── Login single account ───────────────────────────────────────────────────────
 @app.route("/api/accounts/<int:account_id>/login", methods=["POST"])
 def login_one(account_id):
@@ -315,9 +314,9 @@ def login_one(account_id):
     account = next((a for a in accounts if a["id"] == account_id), None)
     if not account:
         return jsonify({"error": "Cuenta no encontrada"}), 404
- 
+
     result = login_account_safe(account)
- 
+
     for a in accounts:
         if a["id"] == account_id:
             a["session_id"] = result.get("session_id")
@@ -326,14 +325,14 @@ def login_one(account_id):
             a["ip_log"]     = result.get("ip_log", [])
     save_accounts(accounts)
     return jsonify(result)
- 
+
 # ── Login ALL ──────────────────────────────────────────────────────────────────
 # Must be sequential so each account registers its IP before the next one checks
 @app.route("/api/login-all", methods=["POST"])
 def login_all():
     accounts = load_accounts()
     results  = []
- 
+
     for account in accounts:
         result = login_account_safe(account)
         results.append(result)
@@ -346,7 +345,7 @@ def login_all():
                 a["current_ip"] = result.get("ip")
                 a["ip_log"]     = result.get("ip_log", [])
         save_accounts(fresh)
- 
+
     connected = sum(1 for r in results if r["success"])
     return jsonify({
         "results": results,
@@ -356,7 +355,7 @@ def login_all():
             "failed":    len(results) - connected
         }
     })
- 
+
 # ── Logout ─────────────────────────────────────────────────────────────────────
 @app.route("/api/accounts/<int:account_id>/logout", methods=["POST"])
 def logout_account(account_id):
@@ -372,7 +371,7 @@ def logout_account(account_id):
             # NOTE: current_ip is kept — history is permanent
     save_accounts(accounts)
     return jsonify({"success": True})
- 
+
 # ── Balance ────────────────────────────────────────────────────────────────────
 @app.route("/api/accounts/<int:account_id>/balance", methods=["GET"])
 def get_balance(account_id):
@@ -382,7 +381,7 @@ def get_balance(account_id):
         return jsonify({"error": "Sin sesión activa"}), 400
     _, resp = qrsolver_request("GET", f"/api/placebet/session/{account['session_id']}/balance/", account["api_key"])
     return jsonify(resp)
- 
+
 # ── Keepalive ──────────────────────────────────────────────────────────────────
 @app.route("/api/keepalive", methods=["POST"])
 def keepalive_all():
@@ -393,16 +392,16 @@ def keepalive_all():
             _, resp = qrsolver_request("POST", f"/api/placebet/session/{a['session_id']}/keepalive/", a["api_key"])
             results.append({"name": a["name"], "alive": resp.get("alive", False)})
     return jsonify({"results": results})
- 
+
 # ══════════════════════════════════════════════════════════════════
 # ROUTES — IP HISTORY
 # ══════════════════════════════════════════════════════════════════
- 
+
 @app.route("/api/ip-history", methods=["GET"])
 def get_ip_history():
     history  = load_ip_history()
     accounts = load_accounts()
- 
+
     # Build per-account summary
     account_ips = {}
     for ip, data in history.items():
@@ -415,7 +414,7 @@ def get_ip_history():
             "last_seen":  data["last_seen"][:16].replace("T"," "),
             "times_used": data["times_used"]
         })
- 
+
     result = []
     for a in accounts:
         result.append({
@@ -426,7 +425,7 @@ def get_ip_history():
             "ip_log":     a.get("ip_log", []),
             "all_ips":    sorted(account_ips.get(a["id"], []), key=lambda x: x["last_seen"], reverse=True)
         })
- 
+
     # Detect any current conflicts (same IP assigned to 2+ accounts right now)
     current_ips = [(a["name"], a.get("current_ip")) for a in accounts if a.get("current_ip")]
     seen = {}
@@ -436,18 +435,18 @@ def get_ip_history():
             conflicts.append({"ip": ip, "accounts": [seen[ip], name]})
         else:
             seen[ip] = name
- 
+
     return jsonify({
         "accounts": result,
         "conflicts": conflicts,
         "total_ips_recorded": len(history)
     })
- 
+
 @app.route("/api/ip-history/clear", methods=["POST"])
 def clear_history():
     clear_ip_history()
     return jsonify({"success": True, "message": "Historial de IPs borrado"})
- 
+
 @app.route("/api/ip-history/delete-ip", methods=["POST"])
 def delete_single_ip():
     ip = request.json.get("ip")
@@ -459,12 +458,12 @@ def delete_single_ip():
         save_ip_history(history)
         return jsonify({"success": True})
     return jsonify({"error": "IP no encontrada"}), 404
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════
 # HORSE RACING — LOAD RUNNERS FROM URL
 # ══════════════════════════════════════════════════════════════════
- 
+
 def odd_to_decimal(odd_str):
     """Convert fractional odd (e.g. '9/2') or decimal string to float."""
     if not odd_str:
@@ -477,7 +476,7 @@ def odd_to_decimal(odd_str):
         return round(float(odd_str), 3)
     except Exception:
         return None
- 
+
 def parse_prematch_runners(raw):
     """
     Parse bet365 raw data stream to extract horse runners.
@@ -488,12 +487,12 @@ def parse_prematch_runners(raw):
     runners = []
     if not raw:
         return runners
- 
+
     text = raw if isinstance(raw, str) else json.dumps(raw)
- 
+
     seen_names = set()
     seen_ids   = set()
- 
+
     # Pattern 1: ID|Name|Odd (pipe delimited — bet365 stream format)
     # Example: 192388023|El Vikingo|9/2
     p1 = re.compile(r'(\d{6,12})\|([A-Za-z][A-Za-z0-9 \'\-\.áéíóúñÁÉÍÓÚÑ]{2,35})\|(\d+/\d+|\d+\.\d{1,2})')
@@ -506,7 +505,7 @@ def parse_prematch_runners(raw):
             seen_names.add(name)
             seen_ids.add(sel_id)
             runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
- 
+
     # Pattern 2: semicolon delimited
     if not runners:
         p2 = re.compile(r'(\d{6,12});([A-Za-z][A-Za-z0-9 \'\-\.áéíóúñ]{2,35});(\d+/\d+|\d+\.\d{1,2})')
@@ -519,7 +518,7 @@ def parse_prematch_runners(raw):
                 seen_names.add(name)
                 seen_ids.add(sel_id)
                 runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
- 
+
     # Pattern 3: any separator — broad fallback
     if not runners:
         p3 = re.compile(r'(\d{6,12})[^\d]([A-Za-z][A-Za-z0-9 \'\-\.]{2,35})[^\d](\d+/\d+)')
@@ -532,115 +531,131 @@ def parse_prematch_runners(raw):
                 seen_names.add(name)
                 seen_ids.add(sel_id)
                 runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
- 
+
     return sorted(runners, key=lambda x: x["odd_dec"])
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════
 # HORSE RACING — FETCH DIRECTLY FROM BET365 VIA PROXY
 # ══════════════════════════════════════════════════════════════════
- 
+
 @app.route("/api/race/runners", methods=["POST"])
 def load_runners():
     """
-    Fetch horse runners directly from Bet365 public API using the account proxy.
-    No QRSolver slot needed — Bet365 race data is public (no login required).
-    QRSolver is only used for placing the actual bet.
+    Fetch horse runners using the logged-in QRSolver session.
+    The session is already authenticated with bet365, so we use it
+    to make requests to bet365's SportsBook API — same as how the 
+    balance endpoint works.
     """
     import re
     data = request.json
     url  = data.get("url", "")
     if not url:
         return jsonify({"error": "URL requerida"}), 400
- 
-    # Extract params from URL segments
+
+    # Extract params from URL
     sm = re.search(r'/B(\d+)/', url)
     fm = re.search(r'/F(\d+)/', url)
     em = re.search(r'/E(\d+)/', url)
     sport_id = int(sm.group(1)) if sm else 73
     fi       = int(fm.group(1)) if fm else 0
     event_id = int(em.group(1)) if em else 0
- 
-    # Build PD hash from URL fragment
-    # Fragment: /AC/B73/C104/D20260404/E21134093/F192388023/H0/
-    # PD format: #AC#B73#C104#D20260404#E21134093#F192388023#H0#
+
+    # Build PD hash
     from urllib.parse import urlparse
     fragment = urlparse(url).fragment
     pd = fragment.replace("/", "#")
     if not pd.startswith("#"):
         pd = "#" + pd
-    if not pd.endswith("#"):
-        pd = pd + "#"
- 
-    # Get proxy from any account — needed to pass Cloudflare (which blocks
-    # datacenter IPs like Railway). We use the proxy ONLY as an anonymous
-    # HTTP tunnel to reach Bet365. No cookies, no credentials, no session.
-    # Bet365 sees: anonymous Chilean IP requesting public race data.
-    # This is identical to opening bet365.com from your phone without logging in.
-    # Zero connection to your betting accounts.
+    if pd.endswith("#"):
+        pd = pd[:-1]
+
+    # Get connected account
     accounts = load_accounts()
-    account  = next((a for a in accounts if a.get("proxy")), None)
-    proxy    = account.get("proxy") if account else None
- 
-    bet365_url = "https://www.bet365.com/SportsBook.API/web"
-    params = {"lid": "1", "zid": "0", "pd": pd, "cid": "97", "ctid": "97"}
-    headers = {
-        # Fresh anonymous browser fingerprint — no relation to any account session
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
-        "Referer": "https://www.bet365.com/",
-        "Origin": "https://www.bet365.com",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive"
-    }
- 
-    raw = ""
-    runners = []
+    account  = next((a for a in accounts if a.get("status") == "connected" and a.get("session_id")), None)
+    if not account:
+        return jsonify({"error": "Conecta una cuenta primero"}), 400
+
+    api_key    = account["api_key"]
+    session_id = account["session_id"]
+    proxy      = account.get("proxy", "")
+
+    runners    = []
+    raw        = ""
     fetch_error = None
- 
+
+    # Strategy 1: Use QRSolver session to fetch bet365 SportsBook API
+    # The session has valid cookies and proxy — bet365 will respond
     try:
         proxies = {"http": proxy, "https": proxy} if proxy else None
-        
-        # Try .com first
-        r = requests.get(
-            bet365_url,
-            params=params,
-            headers=headers,
-            proxies=proxies,
-            timeout=20,
-            verify=False
-        )
-        raw = r.text
- 
-        # Try .es if .com blocked or empty
-        if not raw or len(raw) < 100 or "cloudflare" in raw.lower() or "DOCTYPE" in raw:
-            r2 = requests.get(
-                "https://www.bet365.es/SportsBook.API/web",
-                params=params,
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "es-CL,es;q=0.9",
+            "Referer": "https://www.bet365.com/",
+            "Origin": "https://www.bet365.com",
+        }
+
+        # Try bet365.com SportsBook API with the session proxy
+        # Use the account's configured domain first, then fallback
+        account_domain = account.get("domain", "https://www.bet365.com/").rstrip("/")
+        domains_to_try = [account_domain]
+        for d in ["https://www.bet365.com", "https://www.bet365.es"]:
+            if d not in domains_to_try:
+                domains_to_try.append(d)
+        for domain in domains_to_try:
+            r = requests.get(
+                f"{domain}/SportsBook.API/web",
+                params={"lid":"1","zid":"0","pd":pd,"cid":"97","ctid":"97"},
                 headers=headers,
                 proxies=proxies,
                 timeout=20,
                 verify=False
             )
-            if len(r2.text) > 100 and "cloudflare" not in r2.text.lower():
-                raw = r2.text
- 
-        runners = parse_prematch_runners(raw)
- 
+            raw = r.text
+            if raw and len(raw) > 100 and "cloudflare" not in raw.lower() and "DOCTYPE" not in raw[:100]:
+                runners = parse_prematch_runners(raw)
+                if runners:
+                    break
+
     except Exception as e:
         fetch_error = str(e)
- 
+
+    # Strategy 2: Try QRSolver guest prematch with session proxy
+    if not runners:
+        try:
+            guest_body = {"domain": account.get("domain", "https://www.bet365.com/")}
+            if proxy:
+                guest_body["proxy"] = proxy
+            gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
+            if gs == 200 and "session_id" in gr:
+                guest_id = gr["session_id"]
+                # Try different PD formats
+                for pd_try in [pd, pd.lstrip("#"), pd+"#"]:
+                    _, pr = qrsolver_request("GET",
+                        f"/api/placebet/guest/{guest_id}/prematch",
+                        api_key, params={"pd": pd_try})
+                    raw2 = pr if isinstance(pr, str) else json.dumps(pr)
+                    if "invalid" not in raw2.lower() and "error" not in raw2.lower():
+                        runners = parse_prematch_runners(raw2)
+                        if runners:
+                            raw = raw2
+                            break
+                # Clean up guest session
+                qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
+        except Exception as e:
+            fetch_error = str(e)
+
     return jsonify({
-        "runners":     runners,
-        "pd":          pd,
-        "sport_id":    sport_id,
-        "fi":          fi,
-        "event_id":    event_id,
+        "runners":    runners,
+        "pd":         pd,
+        "sport_id":   sport_id,
+        "fi":         fi,
+        "event_id":   event_id,
         "fetch_error": fetch_error,
-        "raw_sample":  raw[:800] if raw else ""
+        "raw_sample": raw[:400] if raw else ""
     })
- 
+
 @app.route("/api/placebet", methods=["POST"])
 def place_bet_all():
     data         = request.json
@@ -653,25 +668,25 @@ def place_bet_all():
     min_odd      = data.get("min_odd")        # minimum decimal odd user set
     odd_drop_pct = float(data.get("odd_drop_pct", 10))  # block if drops > X%
     pd_hash      = data.get("pd", "")
- 
+
     if not bet365_url:
         return jsonify({"error": "URL de Bet365 requerida"}), 400
     if not selection_id:
         return jsonify({"error": "Selecciona un caballo primero"}), 400
- 
+
     pd, error = parse_bet365_url(bet365_url)
     if error:
         return jsonify({"error": error}), 400
- 
+
     accounts = load_accounts()
     active   = [a for a in accounts if a.get("session_id") and a.get("status") == "connected"]
     if not active:
         return jsonify({"error": "No hay cuentas conectadas"}), 400
- 
+
     # ── Odd protection: re-check current odd before firing ─────────────
     original_decimal = odd_to_decimal(odd_raw)
     odd_check = {"checked": False, "blocked": False, "reason": ""}
- 
+
     if original_decimal:
         api_key    = active[0]["api_key"]
         proxy      = active[0].get("proxy", "")
@@ -685,28 +700,28 @@ def place_bet_all():
                                        api_key, params={"pd": pd})
             runners = parse_prematch_runners(pr if isinstance(pr, str) else json.dumps(pr))
             current = next((r for r in runners if r["id"] == int(selection_id)), None)
- 
+
             if current:
                 odd_check["checked"]      = True
                 odd_check["current_odd"]  = current["odd_dec"]
                 odd_check["original_odd"] = original_decimal
                 drop = (original_decimal - current["odd_dec"]) / original_decimal * 100
                 odd_check["drop_pct"]     = round(drop, 1)
- 
+
                 if min_odd and current["odd_dec"] < float(min_odd):
                     odd_check["blocked"] = True
                     odd_check["reason"]  = f"Cuota {current['odd_dec']} por debajo del mínimo {min_odd}"
- 
+
                 elif drop > odd_drop_pct:
                     odd_check["blocked"] = True
                     odd_check["reason"]  = f"Cuota cayó {drop:.1f}% — supera el límite del {odd_drop_pct}%"
- 
+
                 if not odd_check["blocked"]:
                     odd_raw = current["odd_raw"]   # use fresh odd
- 
+
     if odd_check.get("blocked"):
         return jsonify({"blocked": True, "odd_check": odd_check, "results": []})
- 
+
     # ── Fire on all accounts in parallel ───────────────────────────────
     def bet_one(account):
         bet_body = {
@@ -734,25 +749,25 @@ def place_bet_all():
             "receipt": resp.get("receipt"),
             "response": resp
         }
- 
+
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         for future in concurrent.futures.as_completed(
             {executor.submit(bet_one, acc): acc for acc in active}
         ):
             results.append(future.result())
- 
+
     return jsonify({"results": results, "pd": pd, "odd_check": odd_check, "blocked": False})
- 
+
 # ══════════════════════════════════════════════════════════════════
 # ROUTES — ALL BALANCES
 # ══════════════════════════════════════════════════════════════════
- 
+
 @app.route("/api/balances", methods=["GET"])
 def get_all_balances():
     accounts = load_accounts()
     active   = [a for a in accounts if a.get("session_id") and a.get("status") == "connected"]
- 
+
     def fetch_one(account):
         _, resp = qrsolver_request(
             "GET",
@@ -768,14 +783,14 @@ def get_all_balances():
             "currency":    resp.get("currency", ""),
             "error":       resp.get("error")
         }
- 
+
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         for future in concurrent.futures.as_completed(
             {executor.submit(fetch_one, acc): acc for acc in active}
         ):
             results.append(future.result())
- 
+
     connected_ids = {a["id"] for a in active}
     for a in accounts:
         if a["id"] not in connected_ids:
@@ -783,38 +798,38 @@ def get_all_balances():
                 "id": a["id"], "name": a["name"],
                 "balance": None, "error": "desconectada"
             })
- 
+
     results.sort(key=lambda x: x["id"])
     return jsonify(results)
- 
+
 # ══════════════════════════════════════════════════════════════════
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════
 # DEBUG — test PD hash formats
 # ══════════════════════════════════════════════════════════════════
- 
+
 @app.route("/api/debug/prematch", methods=["POST"])
 def debug_prematch():
     """Try all PD formats and return raw responses for debugging."""
     import re
     data = request.json
     url  = data.get("url", "")
- 
+
     accounts = load_accounts()
     account  = next((a for a in accounts if a.get("status") == "connected" and a.get("api_key")), None)
     if not account:
         return jsonify({"error": "No hay cuentas conectadas"}), 400
- 
+
     api_key    = account["api_key"]
     session_id = account.get("session_id")
     proxy      = account.get("proxy", "")
- 
+
     # Parse fragment from URL
     from urllib.parse import urlparse
     parsed   = urlparse(url)
     fragment = parsed.fragment  # e.g. /AC/B73/C104/D20260404/E21134093/F192388023/H0/
- 
+
     # Generate all format variants
     pd_variants = {
         "hash_format":    fragment.replace("/", "#"),           # #AC#B73#...#
@@ -823,9 +838,9 @@ def debug_prematch():
         "slash_no_lead":  fragment.lstrip("/"),                  # AC/B73/.../
         "hash_no_trail":  fragment.replace("/", "#").strip("#"), # AC#B73#...
     }
- 
+
     results = {}
- 
+
     # Test with existing session on guest endpoint
     for name, pd_val in pd_variants.items():
         if session_id:
@@ -838,14 +853,14 @@ def debug_prematch():
                 "status":  status,
                 "response": raw[:300]
             }
- 
+
     # Also try creating a fresh guest session
     guest_body = {"domain": "https://www.bet365.com/"}
     if proxy:
         guest_body["proxy"] = proxy
     gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
     results["guest_session_create"] = {"status": gs, "response": json.dumps(gr)[:200]}
- 
+
     if gs == 200 and "session_id" in gr:
         guest_id = gr["session_id"]
         for name, pd_val in list(pd_variants.items())[:3]:  # test 3 formats with guest
@@ -860,26 +875,26 @@ def debug_prematch():
             }
         # Clean up guest session
         qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
- 
+
     return jsonify({
         "fragment":  fragment,
         "account":   account["name"],
         "session_id": session_id,
         "results":   results
     })
- 
- 
- 
+
+
+
 @app.route("/api/race/from-browser", methods=["POST"])
 def race_from_browser():
     """Receive race data extracted by the bookmarklet from the user's browser."""
     data    = request.json
     runners = data.get("runners", [])
     url     = data.get("url", "")
- 
+
     if not runners:
         return jsonify({"error": "No se recibieron datos"}), 400
- 
+
     # Store temporarily in memory (overwrite each time)
     app.config["LAST_RACE"] = {
         "runners": runners,
@@ -887,8 +902,8 @@ def race_from_browser():
         "ts":      datetime.utcnow().isoformat()
     }
     return jsonify({"success": True, "count": len(runners)})
- 
- 
+
+
 @app.route("/api/race/last", methods=["GET"])
 def race_last():
     """Return last race data received from the bookmarklet."""
@@ -896,148 +911,31 @@ def race_last():
     if not race:
         return jsonify({"error": "No hay carrera cargada"}), 404
     return jsonify(race)
- 
- 
-@app.route("/test-prematch")
-def test_prematch():
-    """
-    Test visual de guest/prematch.
-    Abre en el navegador: /test-prematch?url=https://www.bet365.com/#/AC/B73/...
-    Si no se pasa url, usa la carrera de ejemplo hardcodeada.
-    Requiere al menos una cuenta con api_key y proxy en accounts.json.
-    """
-    url = request.args.get("url", "https://www.bet365.com/#/AC/B73/C104/D20260406/E21134485/F192493810/P17/")
- 
-    # Obtener api_key y proxy de la primera cuenta disponible
-    accounts = load_accounts()
-    account  = next((a for a in accounts if a.get("api_key")), None)
-    if not account:
-        return "<h2 style='color:red'>❌ No hay cuentas configuradas. Añade una cuenta primero.</h2>", 400
- 
-    api_key = account["api_key"]
-    proxy   = account.get("proxy", "")
- 
-    # Construir PD hash
-    from urllib.parse import urlparse
-    fragment = urlparse(url).fragment
-    pd = fragment.replace("/", "#")
-    if not pd.startswith("#"): pd = "#" + pd
-    if not pd.endswith("#"):   pd = pd + "#"
- 
-    log = []
-    log.append(f"URL:      {url}")
-    log.append(f"Fragment: {fragment}")
-    log.append(f"PD hash:  {pd}")
-    log.append(f"Cuenta:   {account['name']} | Proxy: {'✓' if proxy else '✗ sin proxy'}")
-    log.append("─" * 60)
- 
-    # 1. Crear guest session
-    guest_body = {"domain": "https://www.bet365.com/"}
-    if proxy:
-        guest_body["proxy"] = proxy
- 
-    gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
-    log.append(f"[1] POST /guest/create/  →  status={gs}  resp={json.dumps(gr)[:200]}")
- 
-    if gs != 200 or "session_id" not in gr:
-        html = _test_html("❌ Error creando guest session", log, [], pd, url)
-        return html, 500
- 
-    guest_id = gr["session_id"]
-    log.append(f"    guest_id: {guest_id}")
-    log.append("─" * 60)
- 
-    # 2. Llamar a prematch con el PD hash
-    status, resp = qrsolver_request(
-        "GET",
-        f"/api/placebet/guest/{guest_id}/prematch",
-        api_key,
-        params={"pd": pd}
-    )
- 
-    # La respuesta puede ser texto plano o JSON
-    raw = resp if isinstance(resp, str) else json.dumps(resp)
-    log.append(f"[2] GET /guest/{guest_id[:8]}…/prematch?pd={pd[:30]}…")
-    log.append(f"    status={status}")
-    log.append(f"    response ({len(raw)} chars):")
-    log.append(raw[:1500])
-    log.append("─" * 60)
- 
-    # 3. Parsear runners
-    runners = parse_prematch_runners(raw)
-    log.append(f"[3] Runners parseados: {len(runners)}")
-    for r in runners:
-        log.append(f"    id={r['id']}  odd={r['odd_raw']} ({r['odd_dec']})  {r['name']}")
- 
-    # 4. Limpiar guest session
-    qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
-    log.append("─" * 60)
-    log.append("[4] Guest session eliminada ✓")
- 
-    title = f"✅ {len(runners)} runners encontrados" if runners else "⚠️ 0 runners — ver respuesta raw"
-    return _test_html(title, log, runners, pd, url)
- 
- 
-def _test_html(title, log, runners, pd, url):
-    ok    = title.startswith("✅")
-    color = "#00cc66" if ok else ("#ff8800" if title.startswith("⚠") else "#ff4455")
- 
-    runners_html = ""
-    if runners:
-        rows = "".join(
-            f"<tr><td>{r['id']}</td><td><b>{r['name']}</b></td>"
-            f"<td style='color:#00cc66'>{r['odd_raw']}</td>"
-            f"<td style='color:#aaa'>{r['odd_dec']}</td></tr>"
-            for r in runners
-        )
-        runners_html = f"""
-        <h3 style='color:#00cc66;margin-top:28px'>Runners ({len(runners)})</h3>
-        <table border='1' cellpadding='6' cellspacing='0'
-               style='border-collapse:collapse;width:100%;font-family:monospace;font-size:13px'>
-          <thead style='background:#1a2a1a;color:#aaa'>
-            <tr><th>selection_id</th><th>Nombre</th><th>Cuota (raw)</th><th>Decimal</th></tr>
-          </thead>
-          <tbody>{rows}</tbody>
-        </table>"""
- 
-    log_html = "\n".join(log).replace("<", "&lt;").replace(">", "&gt;")
- 
-    return f"""<!DOCTYPE html>
-<html><head><meta charset='UTF-8'>
-<title>Test prematch</title>
-<style>
-  body{{background:#0a0a0f;color:#e0e0e0;font-family:sans-serif;padding:24px;max-width:900px;margin:0 auto}}
-  h1{{color:{color}}} h2{{color:#888;font-size:14px;font-weight:normal;margin-top:4px}}
-  pre{{background:#111;border:1px solid #2a2a3a;border-radius:8px;padding:16px;
-       font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}}
-  table{{background:#111}} th,td{{border-color:#2a2a3a !important;padding:8px 12px}}
-  .url-box{{background:#111;border:1px solid #333;border-radius:6px;padding:10px 14px;
-             font-family:monospace;font-size:12px;color:#88aaff;margin-bottom:20px}}
-  .tip{{background:#1a1a00;border:1px solid #555500;border-radius:6px;
-         padding:10px 14px;font-size:13px;color:#cccc00;margin-top:20px}}
-</style></head>
-<body>
-<h1>{title}</h1>
-<h2>URL probada</h2>
-<div class='url-box'>{url}</div>
-<h2>PD hash enviado: <span style='color:#88aaff'>{pd}</span></h2>
-{runners_html}
-<h3 style='margin-top:28px;color:#888'>Log completo</h3>
-<pre>{log_html}</pre>
-<div class='tip'>
-  💡 Para probar otra carrera: <br>
-  <code>/test-prematch?url=https://www.bet365.com/#/AC/B73/C104/D.../F.../</code>
-</div>
-</body></html>"""
- 
- 
+
+
+
+@app.route("/static/extract.js")
+def serve_extract_js():
+    from flask import Response
+    app_url = request.url_root.rstrip("/")
+    if os.path.exists("extract.js"):
+        with open("extract.js") as f:
+            js = f.read()
+    else:
+        js = "alert('extract.js not found');"
+    prefix = "window._bet365AppUrl = '" + app_url + "';\n"
+    js = prefix + js
+    return Response(js, mimetype="application/javascript",
+                    headers={"Access-Control-Allow-Origin": "*",
+                             "Cache-Control": "no-cache"})
+
 @app.route("/")
 def index():
     if os.path.exists("index.html"):
         with open("index.html") as f:
             return f.read()
     return "<h1>index.html not found</h1>", 404
- 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
