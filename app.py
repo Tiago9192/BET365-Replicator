@@ -891,46 +891,104 @@ def refresh_race():
     """Refresh runner odds - same as load_runners but for updating existing race."""
     return load_runners()
 
+# ── Race Queue (in-memory, multiple races) ────────────────────────────────
+if "RACE_QUEUE" not in app.config:
+    app.config["RACE_QUEUE"] = {}   # key = fi (fixture id)
+
+def cors_response(data, status=200):
+    resp = jsonify(data)
+    resp.headers["Access-Control-Allow-Origin"]  = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return resp, status
+
 @app.route("/api/race/from-browser", methods=["POST", "OPTIONS"])
 def race_from_browser():
-    """Receive race data extracted by the bookmarklet from the user's browser."""
-    # Handle CORS preflight
+    """Receive race data from bookmarklet. Adds/updates race in queue."""
     if request.method == "OPTIONS":
         from flask import Response as R
-        resp = R()
-        resp.headers["Access-Control-Allow-Origin"]  = "*"
-        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        return resp
+        r = R()
+        r.headers["Access-Control-Allow-Origin"]  = "*"
+        r.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        r.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return r
 
-    data    = request.json
-    runners = data.get("runners", [])
-    url     = data.get("url", "")
+    data     = request.json
+    runners  = data.get("runners", [])
+    url      = data.get("url", "")
+    fi        = str(data.get("fi", 0))
+    sport_id  = data.get("sport_id", 73)
+    race_name = data.get("race_name", "")
 
     if not runners:
-        resp = jsonify({"error": "No se recibieron datos"})
-        resp.headers["Access-Control-Allow-Origin"] = "*"
-        return resp, 400
+        return cors_response({"error": "No se recibieron datos"}, 400)
 
-    app.config["LAST_RACE"] = {
-        "runners": runners,
-        "url":     url,
-        "fi":      data.get("fi", 0),
-        "sport_id":data.get("sport_id", 73),
-        "ts":      datetime.utcnow().isoformat()
+    # Extract date from URL for display
+    import re
+    date_match = re.search(r'D(\d{8})', url)
+    race_date  = date_match.group(1) if date_match else ""
+    if race_date:
+        race_date = race_date[6:8] + "/" + race_date[4:6] + "/" + race_date[0:4]
+
+    # Build display name: use race_name from browser if available
+    if race_name and race_name != "Carrera":
+        display_name = race_name
+        if race_date:
+            display_name = race_name + " — " + race_date
+    else:
+        display_name = f"Carrera {race_date}" if race_date else f"Carrera F{fi}"
+
+    # Check if this race already exists (update) or is new (add)
+    queue = app.config["RACE_QUEUE"]
+    is_update = fi in queue
+
+    queue[fi] = {
+        "fi":       fi,
+        "url":      url,
+        "sport_id": sport_id,
+        "runners":  runners,
+        "date":     race_date,
+        "name":     display_name,
+        "ts":       datetime.utcnow().isoformat(),
+        "selected": None
     }
-    resp = jsonify({"success": True, "count": len(runners)})
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    return resp
+
+    action = "updated" if is_update else "added"
+    return cors_response({"success": True, "count": len(runners), "fi": fi, "action": action})
 
 
 @app.route("/api/race/last", methods=["GET"])
 def race_last():
-    """Return last race data received from the bookmarklet."""
-    race = app.config.get("LAST_RACE")
-    if not race:
+    """Return most recently added race (for backward compatibility)."""
+    queue = app.config.get("RACE_QUEUE", {})
+    if not queue:
         return jsonify({"error": "No hay carrera cargada"}), 404
-    return jsonify(race)
+    # Return most recently added
+    latest = max(queue.values(), key=lambda x: x["ts"])
+    return jsonify(latest)
+
+
+@app.route("/api/race/queue", methods=["GET"])
+def race_queue():
+    """Return all races in queue."""
+    queue = app.config.get("RACE_QUEUE", {})
+    races = sorted(queue.values(), key=lambda x: x["ts"], reverse=True)
+    return jsonify(races)
+
+
+@app.route("/api/race/remove/<fi>", methods=["DELETE"])
+def race_remove(fi):
+    """Remove a race from queue."""
+    queue = app.config.get("RACE_QUEUE", {})
+    if fi in queue:
+        del queue[fi]
+    return jsonify({"success": True})
+
+
+@app.route("/api/race/clear", methods=["POST"])
+def race_clear():
+    """Clear all races from queue."""
+    app.config["RACE_QUEUE"] = {}
+    return jsonify({"success": True})
 
 
 
