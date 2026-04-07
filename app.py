@@ -554,7 +554,7 @@ def load_runners():
     sport_id = int(sm.group(1)) if sm else 73
     fi       = int(fm.group(1)) if fm else 0
 
-    # Build clean PD hash - remove X^T and other extra params
+    # Build clean PD hash
     fragment = urlparse(url).fragment
     fragment = unquote(fragment)
     fragment = re.sub(r'/X[^/]*/.*$', '/', fragment)
@@ -571,15 +571,19 @@ def load_runners():
     if not account:
         return jsonify({"error": "Conecta una cuenta primero"}), 400
 
-    api_key = account["api_key"]
-    proxy   = account.get("proxy", "")
-    domain  = account.get("domain", "https://www.bet365.com/")
+    api_key    = account["api_key"]
+    session_id = account["session_id"]
+    proxy      = account.get("proxy", "")
+    domain     = account.get("domain", "https://www.bet365.com/")
 
     runners     = []
     raw         = ""
     fetch_error = None
 
-    # Use guest session to get prematch data
+    # Step 1: Logout existing session to free the slot
+    qrsolver_request("POST", f"/api/placebet/session/{session_id}/logout/", api_key)
+
+    # Step 2: Create guest session (now slot is free)
     try:
         guest_body = {"domain": domain}
         if proxy:
@@ -590,7 +594,7 @@ def load_runners():
         if gs == 200 and "session_id" in gr:
             guest_id = gr["session_id"]
 
-            # Try the clean PD
+            # Get prematch data
             _, pr = qrsolver_request(
                 "GET",
                 f"/api/placebet/guest/{guest_id}/prematch",
@@ -602,13 +606,42 @@ def load_runners():
             if "invalid" not in raw.lower() and "error" not in raw.lower():
                 runners = parse_prematch_runners(raw)
 
-            # Always close guest session immediately
+            # Close guest session immediately
             qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
         else:
-            fetch_error = f"No se pudo crear sesión guest: {gr}"
+            fetch_error = f"Error creando guest: {gr}"
 
     except Exception as e:
         fetch_error = str(e)
+
+    # Step 3: Re-login account session
+    try:
+        login_body = {
+            "domain":       domain,
+            "username":     account["username"],
+            "password":     account["password"],
+            "country_code": account["country_code"],
+            "keepalive":    True
+        }
+        if proxy:
+            login_body["proxy"] = proxy
+
+        # Create new session
+        cs, cr = qrsolver_request("POST", "/api/placebet/create/", api_key, login_body)
+        if cs == 200 and "session_id" in cr:
+            new_session_id = cr["session_id"]
+            # Login
+            qrsolver_request("POST", f"/api/placebet/session/{new_session_id}/login/", api_key, login_body)
+            # Update account
+            fresh = load_accounts()
+            for a in fresh:
+                if a["id"] == account["id"]:
+                    a["session_id"] = new_session_id
+                    a["status"]     = "connected"
+            save_accounts(fresh)
+
+    except Exception as e:
+        pass  # Re-login failed but we still return runners
 
     return jsonify({
         "runners":     runners,
