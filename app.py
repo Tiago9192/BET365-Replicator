@@ -541,30 +541,29 @@ def parse_prematch_runners(raw):
 
 @app.route("/api/race/runners", methods=["POST"])
 def load_runners():
-    """
-    Fetch horse runners using logged-in session (no guest slot needed).
-    Uses /api/placebet/session/{session_id}/prematch with pd parameter.
-    """
     import re
-    data    = request.json
-    url     = data.get("url", "")
+    from urllib.parse import urlparse, unquote
+    data = request.json
+    url  = data.get("url", "")
     if not url:
         return jsonify({"error": "URL requerida"}), 400
 
-    # Extract params from URL
+    # Extract sport_id and fi from URL
     sm = re.search(r'/B(\d+)/', url)
     fm = re.search(r'/F(\d+)/', url)
     sport_id = int(sm.group(1)) if sm else 73
     fi       = int(fm.group(1)) if fm else 0
 
-    # Build PD hash
-    from urllib.parse import urlparse
+    # Build clean PD hash - remove X^T and other extra params
     fragment = urlparse(url).fragment
+    fragment = unquote(fragment)
+    fragment = re.sub(r'/X[^/]*/.*$', '/', fragment)
+    fragment = re.sub(r'/X[^/]*$', '/', fragment)
     pd = fragment.replace("/", "#")
     if not pd.startswith("#"):
         pd = "#" + pd
-    if not pd.endswith("#"):
-        pd = pd + "#"
+    if pd.endswith("#"):
+        pd = pd[:-1]
 
     # Get connected account
     accounts = load_accounts()
@@ -572,55 +571,44 @@ def load_runners():
     if not account:
         return jsonify({"error": "Conecta una cuenta primero"}), 400
 
-    api_key    = account["api_key"]
-    session_id = account["session_id"]
+    api_key = account["api_key"]
+    proxy   = account.get("proxy", "")
+    domain  = account.get("domain", "https://www.bet365.com/")
 
-    runners    = []
-    raw        = ""
+    runners     = []
+    raw         = ""
     fetch_error = None
 
-    # Strategy 1: Use logged-in session prematch endpoint
+    # Use guest session to get prematch data
     try:
-        status, resp = qrsolver_request(
-            "GET",
-            f"/api/placebet/session/{session_id}/prematch",
-            api_key,
-            params={"pd": pd}
-        )
-        raw = resp if isinstance(resp, str) else json.dumps(resp)
-        runners = parse_prematch_runners(raw)
+        guest_body = {"domain": domain}
+        if proxy:
+            guest_body["proxy"] = proxy
+
+        gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
+
+        if gs == 200 and "session_id" in gr:
+            guest_id = gr["session_id"]
+
+            # Try the clean PD
+            _, pr = qrsolver_request(
+                "GET",
+                f"/api/placebet/guest/{guest_id}/prematch",
+                api_key,
+                params={"pd": pd}
+            )
+            raw = pr if isinstance(pr, str) else json.dumps(pr)
+
+            if "invalid" not in raw.lower() and "error" not in raw.lower():
+                runners = parse_prematch_runners(raw)
+
+            # Always close guest session immediately
+            qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
+        else:
+            fetch_error = f"No se pudo crear sesión guest: {gr}"
+
     except Exception as e:
         fetch_error = str(e)
-
-    # Strategy 2: Try guest session if strategy 1 fails
-    if not runners:
-        try:
-            proxy      = account.get("proxy", "")
-            domain     = account.get("domain", "https://www.bet365.com/")
-            guest_body = {"domain": domain}
-            if proxy:
-                guest_body["proxy"] = proxy
-
-            gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
-            if gs == 200 and "session_id" in gr:
-                guest_id = gr["session_id"]
-                for pd_try in [pd, pd.rstrip("#"), pd.lstrip("#")]:
-                    _, pr = qrsolver_request(
-                        "GET",
-                        f"/api/placebet/guest/{guest_id}/prematch",
-                        api_key,
-                        params={"pd": pd_try}
-                    )
-                    raw2 = pr if isinstance(pr, str) else json.dumps(pr)
-                    if "invalid" not in raw2.lower() and "error" not in raw2.lower():
-                        runners = parse_prematch_runners(raw2)
-                        if runners:
-                            raw = raw2
-                            break
-                # Always close guest session immediately
-                qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
-        except Exception as e:
-            fetch_error = str(e)
 
     return jsonify({
         "runners":     runners,
