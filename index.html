@@ -175,38 +175,26 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   <!-- Race loader -->
   <div class="card">
     <div class="card-title">Cargar carrera</div>
-
-    <!-- Step 1: paste URL -->
     <div class="form-group">
       <label class="form-label">Link de la carrera (Bet365)</label>
       <input class="form-input" id="raceUrlInput"
-        placeholder="https://www.bet365.com/#/AC/B73/C104/...">
+        placeholder="https://www.bet365.com/#/AC/B73/..."
+        oninput="onUrlInput(this.value)">
     </div>
-
-    <!-- Step 2: open and extract -->
     <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="btn btn-primary" style="flex:1" onclick="openAndExtract()">
-        🏇 Cargar caballos
+      <button class="btn btn-primary" style="flex:1" id="openBtn" onclick="openAndExtract()" disabled>
+        🏇 Abrir y cargar caballos
       </button>
-      <button class="btn btn-ghost" onclick="refreshRunners()" title="Actualizar cuotas">
-        🔄
-      </button>
+      <button class="btn btn-ghost" onclick="refreshRunners()" title="Actualizar cuotas">🔄</button>
     </div>
-
-    <div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:8px">— o usa el botón guardado en favoritos —</div>
-
-    <!-- Bookmarklet button -->
-    <div style="text-align:center;margin-bottom:10px">
-      <a id="bookmarkletBtn" href="#"
-        style="display:inline-block;background:var(--surface);border:1px solid var(--green);color:var(--green);font-weight:700;font-family:Syne,sans-serif;padding:8px 18px;border-radius:8px;text-decoration:none;font-size:12px">
-        📋 Cargar en App (guardar en favoritos)
-      </a>
-    </div>
-
     <button class="btn btn-ghost" style="width:100%;margin-bottom:6px" onclick="checkForNewRace()">
       🔄 Verificar caballos cargados
     </button>
-    <div id="loadStatus" style="font-size:11px;color:var(--muted)">Pega el link de Bet365 y toca el botón</div>
+    <div id="loadStatus" style="font-size:11px;color:var(--muted);line-height:1.5">
+      1. Pega el link de la carrera<br>
+      2. Toca "Abrir y cargar caballos"<br>
+      3. En la página de Bet365 toca el botón verde 📋
+    </div>
   </div>
 
   <!-- Runners list -->
@@ -738,49 +726,48 @@ function setupBookmarklet() {
 
 async function openAndExtract() {
   const url = document.getElementById("raceUrlInput").value.trim();
-  if (!url) { toast("Pega el link de la carrera primero", "error"); return; }
-  if (!url.includes("bet365")) { toast("El link debe ser de bet365.com", "error"); return; }
-
-  const btn = document.querySelector("button[onclick='openAndExtract()']");
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Cargando...'; }
-  document.getElementById("loadStatus").textContent = "Obteniendo caballos...";
-  document.getElementById("runnersList").style.display = "none";
-  document.getElementById("betConfig").style.display = "none";
-  raceData.selected = null;
-  updateFireBtn();
-
-  try {
-    const r = await fetch(`${API}/api/race/runners`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({url})
-    });
-    const data = await r.json();
-
-    if (data.error) {
-      document.getElementById("loadStatus").textContent = "⚠ " + data.error;
-      toast(data.error, "error");
-    } else if (!data.runners || !data.runners.length) {
-      document.getElementById("loadStatus").textContent =
-        "No se encontraron caballos. " + (data.raw_sample ? "Raw: " + data.raw_sample.substring(0,100) : "");
-      toast("No se encontraron caballos", "warn");
-    } else {
-      raceData.url      = url;
-      raceData.pd       = data.pd;
-      raceData.sport_id = data.sport_id || 73;
-      raceData.fi       = data.fi || 0;
-      raceData.runners  = data.runners;
-      document.getElementById("loadStatus").textContent = `✓ ${data.runners.length} caballos cargados`;
-      renderRunners(data.runners);
-      toast(`${data.runners.length} caballos cargados ✓`);
-    }
-  } catch(e) {
-    document.getElementById("loadStatus").textContent = "Error de conexión";
-    toast("Error de conexión", "error");
+  if (!url || !url.includes("bet365")) {
+    toast("Pega un link válido de Bet365", "error");
+    return;
   }
 
-  if (btn) { btn.disabled = false; btn.textContent = "🏇 Abrir carrera y cargar caballos"; }
+  const appUrl = window.location.origin;
+
+  // Open bet365 in new tab
+  const newTab = window.open(url, '_blank');
+  document.getElementById("loadStatus").textContent = "✓ Bet365 abierto — toca el botón verde 📋 en esa página";
+  toast("Bet365 abierto — toca el botón verde 📋", "info");
+
+  // Inject extraction script after page loads
+  let injected = false;
+  const injector = setInterval(function() {
+    if (injected) return;
+    try {
+      // Try to inject script
+      const s = newTab.document.createElement('script');
+      s.src = appUrl + '/static/extract.js?t=' + Date.now();
+      newTab.document.head.appendChild(s);
+      injected = true;
+      clearInterval(injector);
+    } catch(e) {
+      // Cross-origin not yet ready, retry
+    }
+  }, 500);
+
+  // Stop trying after 10 seconds
+  setTimeout(function() {
+    clearInterval(injector);
+  }, 10000);
+
+  // Poll for data from our app
+  startRacePolling();
 }
+
+function onUrlInput(val) {
+  const btn = document.getElementById("openBtn");
+  if (btn) btn.disabled = !val.includes("bet365");
+}
+
 
 async function refreshRunners() {
   if (!raceData.url) { toast("Carga una carrera primero", "error"); return; }
