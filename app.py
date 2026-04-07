@@ -891,23 +891,37 @@ def refresh_race():
     """Refresh runner odds - same as load_runners but for updating existing race."""
     return load_runners()
 
-@app.route("/api/race/from-browser", methods=["POST"])
+@app.route("/api/race/from-browser", methods=["POST", "OPTIONS"])
 def race_from_browser():
     """Receive race data extracted by the bookmarklet from the user's browser."""
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        from flask import Response as R
+        resp = R()
+        resp.headers["Access-Control-Allow-Origin"]  = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return resp
+
     data    = request.json
     runners = data.get("runners", [])
     url     = data.get("url", "")
 
     if not runners:
-        return jsonify({"error": "No se recibieron datos"}), 400
+        resp = jsonify({"error": "No se recibieron datos"})
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp, 400
 
-    # Store temporarily in memory (overwrite each time)
     app.config["LAST_RACE"] = {
         "runners": runners,
         "url":     url,
+        "fi":      data.get("fi", 0),
+        "sport_id":data.get("sport_id", 73),
         "ts":      datetime.utcnow().isoformat()
     }
-    return jsonify({"success": True, "count": len(runners)})
+    resp = jsonify({"success": True, "count": len(runners)})
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
 
 
 @app.route("/api/race/last", methods=["GET"])
@@ -923,7 +937,7 @@ def race_last():
 @app.route("/static/extract.js")
 def serve_extract_js():
     from flask import Response
-    app_url = request.url_root.rstrip("/")
+    app_url = request.url_root.rstrip("/").replace("http://", "https://")
     if os.path.exists("extract.js"):
         with open("extract.js") as f:
             js = f.read()
