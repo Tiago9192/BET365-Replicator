@@ -181,19 +181,31 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
         placeholder="https://www.bet365.com/#/AC/B73/..."
         oninput="onUrlInput(this.value)">
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
+    <div style="display:flex;gap:8px;margin-bottom:8px">
       <button class="btn btn-primary" style="flex:1" id="openBtn" onclick="openAndExtract()" disabled>
-        🏇 Abrir y cargar caballos
+        🏇 Abrir carrera
       </button>
       <button class="btn btn-ghost" onclick="refreshRunners()" title="Actualizar cuotas">🔄</button>
     </div>
+
+    <!-- Bookmarklet - guardar una vez y usar siempre -->
+    <div style="background:var(--surface);border:1px dashed var(--green);border-radius:10px;padding:12px;margin-bottom:10px;text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        Guarda este botón en tus favoritos del navegador (clic derecho → guardar enlace).<br>
+        Úsalo cuando estés en Bet365 para enviar los caballos aquí.
+      </div>
+      <a id="bookmarkletBtn" href="#"
+        style="display:inline-block;background:var(--green);color:#000;font-weight:800;font-family:Syne,sans-serif;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:13px">
+        📋 Cargar en App
+      </a>
+    </div>
+
     <button class="btn btn-ghost" style="width:100%;margin-bottom:6px" onclick="checkForNewRace()">
       🔄 Verificar caballos cargados
     </button>
-    <div id="loadStatus" style="font-size:11px;color:var(--muted);line-height:1.5">
-      1. Pega el link de la carrera<br>
-      2. Toca "Abrir y cargar caballos"<br>
-      3. En la página de Bet365 toca el botón verde 📋
+    <div id="loadStatus" style="font-size:11px;color:var(--muted);line-height:1.6">
+      <b>Opción 1:</b> Pega el link → toca 🏇 Abrir carrera → en Bet365 toca el botón verde flotante<br>
+      <b>Opción 2:</b> Guarda 📋 en favoritos → úsalo desde cualquier carrera de Bet365
     </div>
   </div>
 
