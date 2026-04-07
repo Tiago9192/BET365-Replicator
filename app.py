@@ -542,24 +542,20 @@ def parse_prematch_runners(raw):
 @app.route("/api/race/runners", methods=["POST"])
 def load_runners():
     """
-    Fetch horse runners using the logged-in QRSolver session.
-    The session is already authenticated with bet365, so we use it
-    to make requests to bet365's SportsBook API — same as how the 
-    balance endpoint works.
+    Fetch horse runners using logged-in session (no guest slot needed).
+    Uses /api/placebet/session/{session_id}/prematch with pd parameter.
     """
     import re
-    data = request.json
-    url  = data.get("url", "")
+    data    = request.json
+    url     = data.get("url", "")
     if not url:
         return jsonify({"error": "URL requerida"}), 400
 
     # Extract params from URL
     sm = re.search(r'/B(\d+)/', url)
     fm = re.search(r'/F(\d+)/', url)
-    em = re.search(r'/E(\d+)/', url)
     sport_id = int(sm.group(1)) if sm else 73
     fi       = int(fm.group(1)) if fm else 0
-    event_id = int(em.group(1)) if em else 0
 
     # Build PD hash
     from urllib.parse import urlparse
@@ -567,8 +563,8 @@ def load_runners():
     pd = fragment.replace("/", "#")
     if not pd.startswith("#"):
         pd = "#" + pd
-    if pd.endswith("#"):
-        pd = pd[:-1]
+    if not pd.endswith("#"):
+        pd = pd + "#"
 
     # Get connected account
     accounts = load_accounts()
@@ -578,82 +574,61 @@ def load_runners():
 
     api_key    = account["api_key"]
     session_id = account["session_id"]
-    proxy      = account.get("proxy", "")
 
     runners    = []
     raw        = ""
     fetch_error = None
 
-    # Strategy 1: Use QRSolver session to fetch bet365 SportsBook API
-    # The session has valid cookies and proxy — bet365 will respond
+    # Strategy 1: Use logged-in session prematch endpoint
     try:
-        proxies = {"http": proxy, "https": proxy} if proxy else None
-        headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "es-CL,es;q=0.9",
-            "Referer": "https://www.bet365.com/",
-            "Origin": "https://www.bet365.com",
-        }
-
-        # Try bet365.com SportsBook API with the session proxy
-        # Use the account's configured domain first, then fallback
-        account_domain = account.get("domain", "https://www.bet365.com/").rstrip("/")
-        domains_to_try = [account_domain]
-        for d in ["https://www.bet365.com", "https://www.bet365.es"]:
-            if d not in domains_to_try:
-                domains_to_try.append(d)
-        for domain in domains_to_try:
-            r = requests.get(
-                f"{domain}/SportsBook.API/web",
-                params={"lid":"1","zid":"0","pd":pd,"cid":"97","ctid":"97"},
-                headers=headers,
-                proxies=proxies,
-                timeout=20,
-                verify=False
-            )
-            raw = r.text
-            if raw and len(raw) > 100 and "cloudflare" not in raw.lower() and "DOCTYPE" not in raw[:100]:
-                runners = parse_prematch_runners(raw)
-                if runners:
-                    break
-
+        status, resp = qrsolver_request(
+            "GET",
+            f"/api/placebet/session/{session_id}/prematch",
+            api_key,
+            params={"pd": pd}
+        )
+        raw = resp if isinstance(resp, str) else json.dumps(resp)
+        runners = parse_prematch_runners(raw)
     except Exception as e:
         fetch_error = str(e)
 
-    # Strategy 2: Try QRSolver guest prematch with session proxy
+    # Strategy 2: Try guest session if strategy 1 fails
     if not runners:
         try:
-            guest_body = {"domain": account.get("domain", "https://www.bet365.com/")}
+            proxy      = account.get("proxy", "")
+            domain     = account.get("domain", "https://www.bet365.com/")
+            guest_body = {"domain": domain}
             if proxy:
                 guest_body["proxy"] = proxy
+
             gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
             if gs == 200 and "session_id" in gr:
                 guest_id = gr["session_id"]
-                # Try different PD formats
-                for pd_try in [pd, pd.lstrip("#"), pd+"#"]:
-                    _, pr = qrsolver_request("GET",
+                for pd_try in [pd, pd.rstrip("#"), pd.lstrip("#")]:
+                    _, pr = qrsolver_request(
+                        "GET",
                         f"/api/placebet/guest/{guest_id}/prematch",
-                        api_key, params={"pd": pd_try})
+                        api_key,
+                        params={"pd": pd_try}
+                    )
                     raw2 = pr if isinstance(pr, str) else json.dumps(pr)
                     if "invalid" not in raw2.lower() and "error" not in raw2.lower():
                         runners = parse_prematch_runners(raw2)
                         if runners:
                             raw = raw2
                             break
-                # Clean up guest session
+                # Always close guest session immediately
                 qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
         except Exception as e:
             fetch_error = str(e)
 
     return jsonify({
-        "runners":    runners,
-        "pd":         pd,
-        "sport_id":   sport_id,
-        "fi":         fi,
-        "event_id":   event_id,
+        "runners":     runners,
+        "pd":          pd,
+        "sport_id":    sport_id,
+        "fi":          fi,
         "fetch_error": fetch_error,
-        "raw_sample": raw[:400] if raw else ""
+        "raw_sample":  raw[:600] if raw else ""
     })
 
 @app.route("/api/placebet", methods=["POST"])
@@ -884,6 +859,12 @@ def debug_prematch():
     })
 
 
+
+
+@app.route("/api/race/refresh", methods=["POST"])
+def refresh_race():
+    """Refresh runner odds - same as load_runners but for updating existing race."""
+    return load_runners()
 
 @app.route("/api/race/from-browser", methods=["POST"])
 def race_from_browser():

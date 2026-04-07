@@ -184,9 +184,14 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
     </div>
 
     <!-- Step 2: open and extract -->
-    <button class="btn btn-primary" style="width:100%;margin-bottom:10px" onclick="openAndExtract()">
-      🏇 Abrir carrera y cargar caballos
-    </button>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="openAndExtract()">
+        🏇 Cargar caballos
+      </button>
+      <button class="btn btn-ghost" onclick="refreshRunners()" title="Actualizar cuotas">
+        🔄
+      </button>
+    </div>
 
     <div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:8px">— o usa el botón guardado en favoritos —</div>
 
@@ -720,16 +725,12 @@ function clearBetHistory(){if(!confirm("¿Borrar historial?"))return;betHistory=
 // ── Bookmarklet setup ────────────────────────────────────────────────────────
 function setupBookmarklet() {
   const appUrl = window.location.origin;
-  // This bookmarklet loads the extraction script from your app
-  // So it always uses the latest version automatically
-  const bm = "javascript:(function(){" +
-    "var s=document.createElement('script');" +
-    "s.src='" + appUrl + "/static/extract.js?t='+Date.now();" +
-    "document.head.appendChild(s);" +
-  "})();";
+  const scriptUrl = appUrl + "/static/extract.js";
+  const bm = "javascript:(function(){var s=document.createElement('script');s.src='" + scriptUrl + "?t='+(new Date().getTime());document.head.appendChild(s);})();";
   const btn = document.getElementById("bookmarkletBtn");
   if (btn) btn.href = bm;
 }
+
 
 
 
@@ -740,86 +741,71 @@ async function openAndExtract() {
   if (!url) { toast("Pega el link de la carrera primero", "error"); return; }
   if (!url.includes("bet365")) { toast("El link debe ser de bet365.com", "error"); return; }
 
-  const appUrl = window.location.origin;
+  const btn = document.querySelector("button[onclick='openAndExtract()']");
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Cargando...'; }
+  document.getElementById("loadStatus").textContent = "Obteniendo caballos...";
+  document.getElementById("runnersList").style.display = "none";
+  document.getElementById("betConfig").style.display = "none";
+  raceData.selected = null;
+  updateFireBtn();
 
-  // Open bet365 in new tab
-  const newTab = window.open(url, '_blank');
-  document.getElementById("loadStatus").textContent = "Bet365 abierto — esperando que cargue la carrera...";
-  toast("Bet365 abierto, espera 3 segundos...", "info");
+  try {
+    const r = await fetch(`${API}/api/race/runners`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url})
+    });
+    const data = await r.json();
 
-  // After page loads, try to inject extraction script
-  let attempts = 0;
-  const maxAttempts = 30;
-
-  const poller = setInterval(async function() {
-    attempts++;
-    try {
-      // Try to run script in the new tab
-      newTab.eval(`
-        (function(){
-          var rows = document.querySelectorAll('.rh-af');
-          if (!rows.length) return;
-          var runners = [];
-          rows.forEach(function(row, i) {
-            var nameEl = row.querySelector('span.rh-2c');
-            var oddEls = row.querySelectorAll('span.rul-ce0412');
-            var oddEl = oddEls[0];
-            if (nameEl && oddEl) {
-              var name = nameEl.innerText.trim();
-              var odd = oddEl.innerText.trim();
-              if (name && odd && parseFloat(odd) > 1.0 && name.length > 1) {
-                var fiMatch = window.location.href.match(/F(\d+)/);
-                var sportMatch = window.location.href.match(/B(\d+)/);
-                runners.push({name:name, odd:odd,
-                  fi: fiMatch ? fiMatch[1] : '0',
-                  sport_id: sportMatch ? parseInt(sportMatch[1]) : 73,
-                  index: i});
-              }
-            }
-          });
-          if (runners.length > 0) {
-            fetch('${appUrl}/api/race/from-browser', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({runners:runners, url:window.location.href,
-                fi: parseInt(runners[0].fi), sport_id: runners[0].sport_id})
-            }).then(r=>r.json()).then(d=>{
-              if(d.success) window.close();
-            });
-          }
-        })();
-      `);
-    } catch(e) {
-      // Cross-origin blocked — show instructions
-      clearInterval(poller);
+    if (data.error) {
+      document.getElementById("loadStatus").textContent = "⚠ " + data.error;
+      toast(data.error, "error");
+    } else if (!data.runners || !data.runners.length) {
       document.getElementById("loadStatus").textContent =
-        "⚠ No se pudo extraer automáticamente. Usa el botón 📋 de favoritos estando en la carrera.";
-      return;
+        "No se encontraron caballos. " + (data.raw_sample ? "Raw: " + data.raw_sample.substring(0,100) : "");
+      toast("No se encontraron caballos", "warn");
+    } else {
+      raceData.url      = url;
+      raceData.pd       = data.pd;
+      raceData.sport_id = data.sport_id || 73;
+      raceData.fi       = data.fi || 0;
+      raceData.runners  = data.runners;
+      document.getElementById("loadStatus").textContent = `✓ ${data.runners.length} caballos cargados`;
+      renderRunners(data.runners);
+      toast(`${data.runners.length} caballos cargados ✓`);
     }
+  } catch(e) {
+    document.getElementById("loadStatus").textContent = "Error de conexión";
+    toast("Error de conexión", "error");
+  }
 
-    // Check if data arrived
-    try {
-      const r = await fetch(`${API}/api/race/last`);
-      if (r.status === 200) {
-        const data = await r.json();
-        const ts = new Date(data.ts + 'Z').getTime();
-        if (Date.now() - ts < 10000) { // data less than 10 seconds old
-          clearInterval(poller);
-          await checkForNewRace();
-          return;
-        }
+  if (btn) { btn.disabled = false; btn.textContent = "🏇 Abrir carrera y cargar caballos"; }
+}
+
+async function refreshRunners() {
+  if (!raceData.url) { toast("Carga una carrera primero", "error"); return; }
+  const prevSelected = raceData.selected;
+
+  try {
+    const r = await fetch(`${API}/api/race/refresh`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url: raceData.url})
+    });
+    const data = await r.json();
+    if (data.runners && data.runners.length) {
+      raceData.runners = data.runners;
+      renderRunners(data.runners);
+      // Restore previous selection
+      if (prevSelected) {
+        const updated = data.runners.find(r => r.name === prevSelected.name);
+        if (updated) selectRunner(updated.id || updated.name);
       }
-    } catch(e) {}
-
-    if (attempts >= maxAttempts) {
-      clearInterval(poller);
-      document.getElementById("loadStatus").textContent =
-        "Tiempo agotado. Usa el botón 📋 de favoritos en la página de Bet365.";
+      toast("Cuotas actualizadas ✓");
     }
-  }, 1000);
-
-  // Also start polling
-  startRacePolling();
+  } catch(e) {
+    toast("Error actualizando cuotas", "error");
+  }
 }
 
 
