@@ -565,14 +565,17 @@ def load_runners():
     if pd.endswith("#"):
         pd = pd[:-1]
 
-    # Get connected account
+    # Get any account with api_key (connected or not)
     accounts = load_accounts()
     account  = next((a for a in accounts if a.get("status") == "connected" and a.get("session_id")), None)
     if not account:
-        return jsonify({"error": "Conecta una cuenta primero"}), 400
+        # Try disconnected account - slot should be free
+        account = next((a for a in accounts if a.get("api_key")), None)
+    if not account:
+        return jsonify({"error": "Configura al menos una cuenta con API key"}), 400
 
     api_key    = account["api_key"]
-    session_id = account["session_id"]
+    session_id = account.get("session_id")
     proxy      = account.get("proxy", "")
     domain     = account.get("domain", "https://www.bet365.com/")
 
@@ -580,10 +583,11 @@ def load_runners():
     raw         = ""
     fetch_error = None
 
-    # Step 1: Logout existing session to free the slot
-    qrsolver_request("POST", f"/api/placebet/session/{session_id}/logout/", api_key)
+    # Logout existing session if any (free the slot)
+    if session_id:
+        qrsolver_request("POST", f"/api/placebet/session/{session_id}/logout/", api_key)
 
-    # Step 2: Create guest session (now slot is free)
+    # Create guest session (slot should be free now)
     try:
         guest_body = {"domain": domain}
         if proxy:
