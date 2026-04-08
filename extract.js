@@ -25,42 +25,28 @@
   };
 
   document.body.appendChild(btn);
-  setTimeout(extract, 2000);
+  setTimeout(extract, 3000);
 
   function getRaceName() {
-    var venue = '';
-    var raceNum = '';
+    // Exact selectors found via DOM inspection
+    var venueEl  = document.querySelector('.rcr-a4');  // e.g. "Philadelphia"
+    var raceEl   = document.querySelector('.rcr-b');   // e.g. "Race 7"
 
-    // Try to get venue name from header
-    var allEls = document.querySelectorAll('*');
-    for (var i = 0; i < allEls.length; i++) {
-      var el = allEls[i];
-      if (el.childElementCount === 0 && el.innerText) {
-        var t = el.innerText.trim();
-        // Race number pattern: "Race 1", "Race 2", etc
-        if (/^race\s+\d+$/i.test(t) && !raceNum) {
-          raceNum = t;
-        }
-      }
+    var venue   = venueEl  ? venueEl.innerText.trim()  : '';
+    var raceNum = raceEl   ? raceEl.innerText.trim()   : '';
+
+    // Try alternative selectors if main ones not found
+    if (!venue) {
+      var alt = document.querySelector('[class*="rcr-a"]');
+      if (alt) venue = alt.innerText.trim();
     }
-
-    // Venue from header elements
-    var headerEls = document.querySelectorAll('[class*="rcl-Header"],[class*="MarketHeader"],[class*="rh-b"],[class*="rh-c"]');
-    for (var j = 0; j < headerEls.length; j++) {
-      var ht = headerEls[j].innerText.trim().split('\n')[0].trim();
-      if (ht && ht.length > 2 && ht.length < 40 && !/^\d+$/.test(ht)) {
-        venue = ht;
-        break;
-      }
-    }
-
-    // Fallback: page title
-    if (!venue && document.title) {
-      venue = document.title.replace('bet365','').replace('|','').trim();
+    if (!raceNum) {
+      var alt2 = document.querySelector('[class*="rcr-b"]');
+      if (alt2) raceNum = alt2.innerText.trim();
     }
 
     if (venue && raceNum) return venue + ' — ' + raceNum;
-    if (venue) return venue;
+    if (venue)   return venue;
     if (raceNum) return raceNum;
     return 'Carrera';
   }
