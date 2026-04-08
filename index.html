@@ -762,8 +762,7 @@ function openMultiple() {
   const text = document.getElementById("multiUrlInput").value.trim();
   if (!text) { toast("Pega al menos un link", "error"); return; }
   
-  const urls = text.split("
-").map(u => u.trim()).filter(u => u.includes("bet365"));
+  const urls = text.split("\n").map(u => u.trim()).filter(u => u.includes("bet365"));
   if (!urls.length) { toast("No se encontraron links de Bet365", "error"); return; }
 
   let opened = 0;
