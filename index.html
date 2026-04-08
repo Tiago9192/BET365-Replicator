@@ -184,45 +184,40 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 <!-- ══ TAB: CARRERA ══ -->
 <div class="panel active" id="tab-carrera">
 
+
   <!-- Race loader -->
   <div class="card">
-    <div class="card-title">Cargar carrera</div>
+    <div class="card-title">Agregar carreras</div>
+
+    <!-- Single URL -->
     <div class="form-group">
-      <label class="form-label">Link de la carrera (Bet365)</label>
-      <input class="form-input" id="raceUrlInput"
-        placeholder="https://www.bet365.com/#/AC/B73/..."
-        oninput="onUrlInput(this.value)">
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <button class="btn btn-primary" style="flex:1" id="openBtn" onclick="openAndExtract()" disabled>
-        🏇 Abrir carrera
-      </button>
-      <button class="btn btn-ghost" onclick="refreshRunners()" title="Actualizar cuotas">🔄</button>
-    </div>
-
-    <!-- Bookmarklet - guardar una vez y usar siempre -->
-    <div style="background:var(--surface);border:1px dashed var(--green);border-radius:10px;padding:12px;margin-bottom:10px;text-align:center">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        1. Toca "Copiar código"<br>
-        2. Ve a tus favoritos → crea un nuevo marcador<br>
-        3. En el campo URL pega el código copiado<br>
-        4. Guarda con el nombre "Cargar en App"
+      <label class="form-label">Un link</label>
+      <div style="display:flex;gap:8px">
+        <input class="form-input" id="raceUrlInput"
+          placeholder="https://www.bet365.com/#/AC/B73/..."
+          oninput="onUrlInput(this.value)" style="flex:1">
+        <button class="btn btn-primary" id="loadBtn" onclick="loadSingleRace()" disabled>
+          Cargar
+        </button>
       </div>
-      <button id="bookmarkletBtn" onclick="copyBookmarklet()"
-        style="background:var(--green);color:#000;font-weight:800;font-family:Syne,sans-serif;padding:10px 20px;border-radius:8px;border:none;cursor:pointer;font-size:13px">
-        📋 Copiar código del marcador
-      </button>
-      <div id="bmCopyStatus" style="font-size:10px;color:var(--muted);margin-top:6px"></div>
     </div>
 
-    <button class="btn btn-ghost" style="width:100%;margin-bottom:6px" onclick="checkForNewRace()">
-      🔄 Verificar caballos cargados
-    </button>
-    <div id="loadStatus" style="font-size:11px;color:var(--muted);line-height:1.6">
-      <b>Opción 1:</b> Pega el link → toca 🏇 Abrir carrera → en Bet365 toca el botón verde flotante<br>
-      <b>Opción 2:</b> Guarda 📋 en favoritos → úsalo desde cualquier carrera de Bet365
+    <!-- Multiple URLs -->
+    <div class="form-group">
+      <label class="form-label">Varios links (uno por línea)</label>
+      <textarea class="form-input" id="multiUrlInput" rows="4"
+        placeholder="https://www.bet365.com/#/AC/B73/...&#10;https://www.bet365.com/#/AC/B73/..."
+        style="resize:vertical;min-height:80px;font-size:11px"></textarea>
+      <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="loadMultiple()">
+        🏇 Cargar todas las carreras
+      </button>
+    </div>
+
+    <div id="loadStatus" style="font-size:11px;color:var(--muted)">
+      Pega el link de Bet365 y toca "Cargar"
     </div>
   </div>
+
 
   <!-- Race Queue -->
   <div id="raceQueue" style="display:none;margin-bottom:10px">
@@ -385,8 +380,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", names[i]===name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
-  if (name==="carrera")  { startRacePolling();
-loadRaceQueue(); checkForNewRace(); }
+  if (name==="carrera")  { loadRaceQueue(); checkForNewRace(); }
   else                     stopRacePolling();
   if (name==="saldos")   loadBalances();
   if (name==="ips")      loadIPHistory();
@@ -764,6 +758,32 @@ async function loadRaceQueue() {
   } catch(e) {}
 }
 
+function openMultiple() {
+  const text = document.getElementById("multiUrlInput").value.trim();
+  if (!text) { toast("Pega al menos un link", "error"); return; }
+  
+  const urls = text.split("
+").map(u => u.trim()).filter(u => u.includes("bet365"));
+  if (!urls.length) { toast("No se encontraron links de Bet365", "error"); return; }
+
+  let opened = 0;
+  urls.forEach((url, i) => {
+    setTimeout(() => {
+      window.open(url, '_blank');
+      opened++;
+      if (opened === urls.length) {
+        toast(`${urls.length} carreras abiertas — toca el botón verde en cada una`, "info");
+      }
+    }, i * 800); // Open with small delay to avoid popup blocker
+  });
+}
+
+function getVenueFromName(name) {
+  // Extract venue (everything before " — ")
+  const parts = name.split(" — ");
+  return parts[0] || name;
+}
+
 function renderRaceQueue() {
   const queueEl = document.getElementById("raceQueue");
   const itemsEl = document.getElementById("raceQueueItems");
@@ -775,32 +795,57 @@ function renderRaceQueue() {
   }
 
   queueEl.style.display = "block";
-  itemsEl.innerHTML = races.map(race => {
-    const isActive  = race.fi === activeRaceFi;
-    const hasOdds   = race.runners && race.runners.some(r => r.odd && r.odd !== "SP");
-    const ts        = new Date(race.ts + "Z").toLocaleTimeString("es");
 
-    const runnersHtml = race.runners ? race.runners.slice(0,4).map(r =>
-      `<span class="rq-runner-chip ${r.odd === 'SP' ? 'sp' : ''}">${r.name} ${r.odd}</span>`
-    ).join("") + (race.runners.length > 4 ? `<span class="rq-runner-chip">+${race.runners.length-4}</span>` : "") : "";
+  // Group by venue
+  const venues = {};
+  races.forEach(race => {
+    const venue = getVenueFromName(race.name);
+    if (!venues[venue]) venues[venue] = [];
+    venues[venue].push(race);
+  });
 
-    return `
-      <div class="race-queue-item ${isActive ? 'active' : ''}" onclick="selectRaceFromQueue('${race.fi}')">
-        <div class="rq-header">
-          <div class="rq-name">${race.name}</div>
-          <div class="rq-actions">
-            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();updateRaceOdds('${race.fi}')" title="Actualizar cuotas">🔄</button>
-            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeRace('${race.fi}')">✕</button>
-          </div>
-        </div>
-        <div class="rq-meta">
-          ${race.runners ? race.runners.length : 0} caballos · Actualizado: ${ts}
-          ${!hasOdds ? ' · <span style="color:var(--yellow)">⚠ SP (sin cuotas aún)</span>' : ''}
-        </div>
-        <div class="rq-runners">${runnersHtml}</div>
+  // Sort races within each venue by fi
+  Object.values(venues).forEach(v => v.sort((a, b) => parseInt(a.fi) - parseInt(b.fi)));
+
+  let html = '';
+  Object.entries(venues).forEach(([venue, venueRaces]) => {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;padding:0 2px">
+        🏟 ${venue}
       </div>`;
-  }).join("");
+
+    venueRaces.forEach(race => {
+      const isActive = race.fi === activeRaceFi;
+      const hasOdds  = race.runners && race.runners.some(r => r.odd && r.odd !== 'SP');
+      const ts       = new Date(race.ts + 'Z').toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'});
+      const count    = race.runners ? race.runners.length : 0;
+
+      // Race label (number or time)
+      const raceLabel = race.name.includes(' — ') ? race.name.split(' — ').slice(1).join(' — ') : race.name;
+
+      html += `
+        <div class="race-queue-item ${isActive ? 'active' : ''}" onclick="selectRaceFromQueue('${race.fi}')">
+          <div class="rq-header">
+            <div class="rq-name">${raceLabel || race.name}</div>
+            <div class="rq-actions">
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();updateRaceOdds('${race.fi}')" title="Actualizar">🔄</button>
+              <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeRace('${race.fi}')">✕</button>
+            </div>
+          </div>
+          <div class="rq-meta">
+            ${count} caballos · ${ts}
+            ${!hasOdds ? ' · <span style="color:var(--yellow)">SP</span>' : ''}
+            ${isActive ? ' · <span style="color:var(--green)">●</span>' : ''}
+          </div>
+        </div>`;
+    });
+
+    html += '</div>';
+  });
+
+  itemsEl.innerHTML = html;
 }
+
 
 function selectRaceFromQueue(fi) {
   const race = raceQueue[fi];
@@ -812,35 +857,139 @@ function selectRaceFromQueue(fi) {
   raceData.url      = race.url;
   raceData.fi       = parseInt(fi);
   raceData.sport_id = race.sport_id || 73;
-  raceData.runners  = race.runners.map((r, i) => ({
-    id:      r.id || r.index || i,
-    name:    r.name,
-    odd_raw: r.odd,
-    odd_dec: odd_to_decimal_js(r.odd)
-  }));
   raceData.selected = null;
 
-  document.getElementById("raceTitle").textContent = `🏇 ${race.runners.length} CABALLOS — ${race.name}`;
-  renderRunners(raceData.runners);
-  document.getElementById("runnersList").style.display = "block";
-  document.getElementById("betConfig").style.display   = "none";
-  updateFireBtn();
-  toast(`Carrera seleccionada: ${race.name}`);
+  // Check if runners have real IDs (from prematch) or just indices (from bookmarklet)
+  const hasRealIds = race.runners && race.runners.some(r => r.id && parseInt(r.id) > 1000000);
+
+  if (hasRealIds) {
+    // Already have real IDs — use directly
+    raceData.runners = race.runners.map(r => ({
+      id:      parseInt(r.id),
+      name:    r.name,
+      odd_raw: r.odd_raw || r.odd,
+      odd_dec: r.odd_dec || odd_to_decimal_js(r.odd_raw || r.odd)
+    }));
+    document.getElementById("raceTitle").textContent = `🏇 ${race.runners.length} CABALLOS — ${race.name}`;
+    renderRunners(raceData.runners);
+    document.getElementById("runnersList").style.display = "block";
+    document.getElementById("betConfig").style.display   = "none";
+    updateFireBtn();
+    toast(`Carrera seleccionada: ${race.name}`);
+  } else {
+    // No real IDs — fetch from prematch API to get real selection IDs
+    document.getElementById("raceTitle").textContent = `⏳ Cargando datos de la carrera...`;
+    document.getElementById("runnersList").style.display = "block";
+    document.getElementById("runnersItems").innerHTML = `<div style="color:var(--muted);font-size:12px;padding:10px">Obteniendo IDs de selección...</div>`;
+    updateFireBtn();
+    toast(`Obteniendo datos actualizados...`, "info");
+
+    fetch(`${API}/api/race/runners`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url: race.url})
+    }).then(r => r.json()).then(data => {
+      if (data.runners && data.runners.length) {
+        raceData.runners = data.runners.map(r => ({
+          id:      r.id,
+          name:    r.name,
+          odd_raw: r.odd_raw,
+          odd_dec: r.odd_dec
+        }));
+        // Update queue with real data
+        if (raceQueue[fi]) {
+          raceQueue[fi].runners = data.runners.map(r => ({
+            id: r.id, name: r.name,
+            odd: r.odd_raw, odd_raw: r.odd_raw, odd_dec: r.odd_dec
+          }));
+        }
+        document.getElementById("raceTitle").textContent = `🏇 ${data.runners.length} CABALLOS — ${race.name}`;
+        renderRunners(raceData.runners);
+        updateFireBtn();
+        toast(`${data.runners.length} caballos con IDs reales cargados ✓`);
+      } else {
+        // Fallback to bookmarklet data without real IDs
+        raceData.runners = race.runners.map((r, i) => ({
+          id: r.id || i,
+          name: r.name,
+          odd_raw: r.odd,
+          odd_dec: odd_to_decimal_js(r.odd)
+        }));
+        document.getElementById("raceTitle").textContent = `🏇 ${race.runners.length} CABALLOS — ${race.name}`;
+        renderRunners(raceData.runners);
+        updateFireBtn();
+        toast(`Caballos cargados (sin IDs reales — slot no disponible)`, "warn");
+      }
+      document.getElementById("betConfig").style.display = "none";
+    }).catch(e => {
+      raceData.runners = race.runners.map((r, i) => ({
+        id: r.id || i, name: r.name,
+        odd_raw: r.odd, odd_dec: odd_to_decimal_js(r.odd)
+      }));
+      document.getElementById("raceTitle").textContent = `🏇 ${race.runners.length} CABALLOS — ${race.name}`;
+      renderRunners(raceData.runners);
+      updateFireBtn();
+    });
+  }
 }
 
 async function updateRaceOdds(fi) {
   const race = raceQueue[fi];
   if (!race) return;
-  toast("Abre Bet365 con el marcador para actualizar las cuotas", "info");
-  // Open the race URL in new tab so user can click bookmarklet
-  window.open(race.url, '_blank');
+
+  const btn = document.querySelector(`button[onclick="updateRaceOdds('${fi}')"]`);
+  if (btn) { btn.innerHTML = "⏳"; btn.disabled = true; }
+
+  try {
+    const r = await fetch(`${API}/api/race/runners`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url: race.url})
+    });
+    const data = await r.json();
+
+    if (data.runners && data.runners.length) {
+      // Update queue with fresh odds
+      raceQueue[fi].runners = data.runners.map(r => ({
+        id: r.id, name: r.name,
+        odd: r.odd_raw, odd_raw: r.odd_raw, odd_dec: r.odd_dec
+      }));
+      raceQueue[fi].ts = new Date().toISOString().replace("Z","");
+
+      // Update server
+      await fetch(`${API}/api/race/from-browser`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          runners: raceQueue[fi].runners,
+          url: race.url,
+          fi: parseInt(fi),
+          sport_id: race.sport_id || 73
+        })
+      });
+
+      renderRaceQueue();
+
+      // If this is the active race, refresh the runners display
+      if (activeRaceFi === fi) {
+        raceData.runners = data.runners.map(r => ({
+          id: r.id, name: r.name,
+          odd_raw: r.odd_raw, odd_dec: r.odd_dec
+        }));
+        renderRunners(raceData.runners);
+      }
+      toast("Cuotas actualizadas ✓");
+    }
+  } catch(e) {
+    toast("Error actualizando cuotas", "error");
+  }
+
+  if (btn) { btn.innerHTML = "🔄"; btn.disabled = false; }
 }
 
 async function refreshCurrentRace() {
   if (!activeRaceFi) { toast("Selecciona una carrera primero", "error"); return; }
-  toast("Abre Bet365 con el marcador para actualizar las cuotas", "info");
-  const race = raceQueue[activeRaceFi];
-  if (race) window.open(race.url, '_blank');
+  await updateRaceOdds(activeRaceFi);
 }
 
 async function removeRace(fi) {
@@ -905,47 +1054,102 @@ function copyBookmarklet() {
 
 
 
-async function openAndExtract() {
+async function loadSingleRace() {
   const url = document.getElementById("raceUrlInput").value.trim();
   if (!url || !url.includes("bet365")) {
     toast("Pega un link válido de Bet365", "error");
     return;
   }
+  await loadRaceByUrl(url);
+  document.getElementById("raceUrlInput").value = "";
+  document.getElementById("loadBtn").disabled = true;
+}
 
-  const appUrl = window.location.origin;
+async function loadMultiple() {
+  const text = document.getElementById("multiUrlInput").value.trim();
+  if (!text) { toast("Pega al menos un link", "error"); return; }
 
-  // Open bet365 in new tab
-  const newTab = window.open(url, '_blank');
-  document.getElementById("loadStatus").textContent = "✓ Bet365 abierto — toca el botón verde 📋 en esa página";
-  toast("Bet365 abierto — toca el botón verde 📋", "info");
+  const urls = text.split("\n").map(u => u.trim()).filter(u => u.includes("bet365"));
+  if (!urls.length) { toast("No se encontraron links de Bet365", "error"); return; }
 
-  // Inject extraction script after page loads
-  let injected = false;
-  const injector = setInterval(function() {
-    if (injected) return;
-    try {
-      // Try to inject script
-      const s = newTab.document.createElement('script');
-      s.src = appUrl + '/static/extract.js?t=' + Date.now();
-      newTab.document.head.appendChild(s);
-      injected = true;
-      clearInterval(injector);
-    } catch(e) {
-      // Cross-origin not yet ready, retry
+  document.getElementById("loadStatus").textContent = `Cargando ${urls.length} carreras...`;
+
+  let loaded = 0;
+  let errors = 0;
+  for (const url of urls) {
+    const ok = await loadRaceByUrl(url, false);
+    if (ok) loaded++; else errors++;
+  }
+
+  document.getElementById("multiUrlInput").value = "";
+  document.getElementById("loadStatus").textContent = `✓ ${loaded} carreras cargadas${errors ? ` · ${errors} errores` : ""}`;
+  toast(`${loaded} carreras cargadas ✓`);
+}
+
+async function loadRaceByUrl(url, showToast = true) {
+  document.getElementById("loadStatus").textContent = "Cargando...";
+  try {
+    const r = await fetch(`${API}/api/race/runners`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url})
+    });
+    const data = await r.json();
+
+    if (data.error) {
+      document.getElementById("loadStatus").textContent = "⚠ " + data.error;
+      if (showToast) toast(data.error, "error");
+      return false;
     }
-  }, 500);
 
-  // Stop trying after 10 seconds
-  setTimeout(function() {
-    clearInterval(injector);
-  }, 10000);
+    // Build race name from URL
+    const fiMatch = url.match(/F(\d+)/);
+    const fi = fiMatch ? fiMatch[1] : "0";
 
-  // Poll for data from our app
-  startRacePolling();
+    // Save to race queue with real IDs
+    const race = {
+      fi:        fi,
+      url:       url,
+      sport_id:  data.sport_id || 73,
+      runners:   data.runners.map(r => ({
+        id:      r.id,
+        name:    r.name,
+        odd:     r.odd_raw,
+        odd_raw: r.odd_raw,
+        odd_dec: r.odd_dec
+      })),
+      name:      "Cargando...",
+      ts:        new Date().toISOString().replace("Z","")
+    };
+
+    // Save to server queue
+    await fetch(`${API}/api/race/from-browser`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        runners:  race.runners,
+        url:      url,
+        fi:       parseInt(fi),
+        sport_id: data.sport_id || 73
+      })
+    });
+
+    raceQueue[fi] = race;
+    await loadRaceQueue();  // refresh to get name from server
+
+    if (showToast) toast(`${data.runners.length} caballos cargados ✓`);
+    document.getElementById("loadStatus").textContent = `✓ ${data.runners.length} caballos cargados`;
+    return true;
+
+  } catch(e) {
+    document.getElementById("loadStatus").textContent = "Error de conexión";
+    if (showToast) toast("Error de conexión", "error");
+    return false;
+  }
 }
 
 function onUrlInput(val) {
-  const btn = document.getElementById("openBtn");
+  const btn = document.getElementById("loadBtn");
   if (btn) btn.disabled = !val.includes("bet365");
 }
 
@@ -1013,19 +1217,13 @@ function extractFI(url) {
 
 // Poll for new race data every 5 seconds when on carrera tab
 let racePoller = null;
-function startRacePolling() {
-  racePoller = setInterval(function() {
-    checkForNewRace();
-    loadRaceQueue();
-  }, 5000);
-}
-function stopRacePolling()  { if (racePoller) clearInterval(racePoller); }
+function startRacePolling() {}   // disabled - manual updates only
+function stopRacePolling()  {}   // disabled
 
 // ── Init ───────────────────────────────────────────────────────────────────
 setInterval(keepaliveAll, 9*60*1000);
 loadAccounts();
 setInterval(loadAccounts, 30000);
-startRacePolling();
 </script>
 </body>
 </html>
