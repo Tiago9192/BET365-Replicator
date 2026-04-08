@@ -143,6 +143,18 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 .conflict-banner{background:rgba(255,68,102,0.08);border:1px solid var(--red);border-radius:10px;padding:12px;margin-bottom:12px;}
 .ok-banner{background:rgba(0,255,136,0.06);border:1px solid var(--green);border-radius:10px;padding:12px;margin-bottom:12px;}
 
+/* Race Queue */
+.race-queue-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all 0.15s;}
+.race-queue-item:hover{border-color:var(--green);}
+.race-queue-item.active{border-color:var(--green);background:rgba(0,255,136,0.05);}
+.rq-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.rq-name{font-size:12px;font-weight:700;flex:1;}
+.rq-actions{display:flex;gap:5px;}
+.rq-meta{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);}
+.rq-runners{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+.rq-runner-chip{font-family:'Space Mono',monospace;font-size:10px;padding:2px 7px;border-radius:4px;background:var(--card);color:var(--text);}
+.rq-runner-chip.sp{color:var(--muted);}
+
 /* Toast */
 #toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:13px;z-index:200;transition:transform 0.3s;max-width:320px;text-align:center;pointer-events:none;}
 #toast.show{transform:translateX(-50%) translateY(0);}
@@ -212,9 +224,21 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
     </div>
   </div>
 
+  <!-- Race Queue -->
+  <div id="raceQueue" style="display:none;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700">🏇 Carreras cargadas</div>
+      <button class="btn btn-danger btn-sm" onclick="clearRaceQueue()">Limpiar todo</button>
+    </div>
+    <div id="raceQueueItems"></div>
+  </div>
+
   <!-- Runners list -->
   <div id="runnersList" style="display:none">
-    <div class="card-title" style="margin-bottom:8px" id="raceTitle">CABALLOS</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div class="card-title" style="margin:0" id="raceTitle">CABALLOS</div>
+      <button class="btn btn-ghost btn-sm" onclick="refreshCurrentRace()">🔄 Actualizar cuotas</button>
+    </div>
     <div id="runnersItems"></div>
   </div>
 
@@ -361,7 +385,8 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", names[i]===name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
-  if (name==="carrera")  { startRacePolling(); checkForNewRace(); }
+  if (name==="carrera")  { startRacePolling();
+loadRaceQueue(); checkForNewRace(); }
   else                     stopRacePolling();
   if (name==="saldos")   loadBalances();
   if (name==="ips")      loadIPHistory();
@@ -725,6 +750,125 @@ function renderBetHistory() {
 
 function clearBetHistory(){if(!confirm("¿Borrar historial?"))return;betHistory=[];localStorage.removeItem("bh4");renderBetHistory();toast("Borrado");}
 
+// ── Race Queue ────────────────────────────────────────────────────────────────
+let raceQueue = {};  // fi -> race data
+let activeRaceFi = null;
+
+async function loadRaceQueue() {
+  try {
+    const r = await fetch(`${API}/api/race/queue`);
+    const races = await r.json();
+    raceQueue = {};
+    races.forEach(race => raceQueue[race.fi] = race);
+    renderRaceQueue();
+  } catch(e) {}
+}
+
+function renderRaceQueue() {
+  const queueEl = document.getElementById("raceQueue");
+  const itemsEl = document.getElementById("raceQueueItems");
+  const races   = Object.values(raceQueue);
+
+  if (!races.length) {
+    queueEl.style.display = "none";
+    return;
+  }
+
+  queueEl.style.display = "block";
+  itemsEl.innerHTML = races.map(race => {
+    const isActive  = race.fi === activeRaceFi;
+    const hasOdds   = race.runners && race.runners.some(r => r.odd && r.odd !== "SP");
+    const ts        = new Date(race.ts + "Z").toLocaleTimeString("es");
+
+    const runnersHtml = race.runners ? race.runners.slice(0,4).map(r =>
+      `<span class="rq-runner-chip ${r.odd === 'SP' ? 'sp' : ''}">${r.name} ${r.odd}</span>`
+    ).join("") + (race.runners.length > 4 ? `<span class="rq-runner-chip">+${race.runners.length-4}</span>` : "") : "";
+
+    return `
+      <div class="race-queue-item ${isActive ? 'active' : ''}" onclick="selectRaceFromQueue('${race.fi}')">
+        <div class="rq-header">
+          <div class="rq-name">${race.name}</div>
+          <div class="rq-actions">
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();updateRaceOdds('${race.fi}')" title="Actualizar cuotas">🔄</button>
+            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeRace('${race.fi}')">✕</button>
+          </div>
+        </div>
+        <div class="rq-meta">
+          ${race.runners ? race.runners.length : 0} caballos · Actualizado: ${ts}
+          ${!hasOdds ? ' · <span style="color:var(--yellow)">⚠ SP (sin cuotas aún)</span>' : ''}
+        </div>
+        <div class="rq-runners">${runnersHtml}</div>
+      </div>`;
+  }).join("");
+}
+
+function selectRaceFromQueue(fi) {
+  const race = raceQueue[fi];
+  if (!race) return;
+  activeRaceFi = fi;
+  renderRaceQueue();
+
+  // Load into main race data
+  raceData.url      = race.url;
+  raceData.fi       = parseInt(fi);
+  raceData.sport_id = race.sport_id || 73;
+  raceData.runners  = race.runners.map((r, i) => ({
+    id:      r.id || r.index || i,
+    name:    r.name,
+    odd_raw: r.odd,
+    odd_dec: odd_to_decimal_js(r.odd)
+  }));
+  raceData.selected = null;
+
+  document.getElementById("raceTitle").textContent = `🏇 ${race.runners.length} CABALLOS — ${race.name}`;
+  renderRunners(raceData.runners);
+  document.getElementById("runnersList").style.display = "block";
+  document.getElementById("betConfig").style.display   = "none";
+  updateFireBtn();
+  toast(`Carrera seleccionada: ${race.name}`);
+}
+
+async function updateRaceOdds(fi) {
+  const race = raceQueue[fi];
+  if (!race) return;
+  toast("Abre Bet365 con el marcador para actualizar las cuotas", "info");
+  // Open the race URL in new tab so user can click bookmarklet
+  window.open(race.url, '_blank');
+}
+
+async function refreshCurrentRace() {
+  if (!activeRaceFi) { toast("Selecciona una carrera primero", "error"); return; }
+  toast("Abre Bet365 con el marcador para actualizar las cuotas", "info");
+  const race = raceQueue[activeRaceFi];
+  if (race) window.open(race.url, '_blank');
+}
+
+async function removeRace(fi) {
+  await fetch(`${API}/api/race/remove/${fi}`, {method: "DELETE"});
+  if (activeRaceFi === fi) {
+    activeRaceFi = null;
+    document.getElementById("runnersList").style.display = "none";
+    document.getElementById("betConfig").style.display   = "none";
+    raceData.selected = null;
+    updateFireBtn();
+  }
+  loadRaceQueue();
+  toast("Carrera eliminada");
+}
+
+async function clearRaceQueue() {
+  if (!confirm("¿Limpiar todas las carreras?")) return;
+  await fetch(`${API}/api/race/clear`, {method: "POST"});
+  raceQueue = {};
+  activeRaceFi = null;
+  document.getElementById("runnersList").style.display = "none";
+  document.getElementById("betConfig").style.display   = "none";
+  raceData.selected = null;
+  updateFireBtn();
+  renderRaceQueue();
+  toast("Cola de carreras limpiada");
+}
+
 // ── Bookmarklet setup ────────────────────────────────────────────────────────
 function setupBookmarklet() {}  // kept for compatibility
 
@@ -836,30 +980,16 @@ async function refreshRunners() {
 async function checkForNewRace() {
   document.getElementById("loadStatus").textContent = "Verificando...";
   try {
-    const r = await fetch(`${API}/api/race/last`);
-    if (r.status === 404) {
-      document.getElementById("loadStatus").textContent = "No hay carrera cargada aún. Ve a Bet365 y usa el marcador.";
-      return;
-    }
-    const data = await r.json();
-    if (data.runners && data.runners.length) {
-      // Convert browser-extracted runners to our format
-      raceData.url      = data.url || "";
-      raceData.runners  = data.runners.map((r, i) => ({
-        id:      r.id || (1000000000 + i),
-        name:    r.name,
-        odd_raw: r.odd,
-        odd_dec: odd_to_decimal_js(r.odd)
-      })).filter(r => r.odd_dec > 1.0);
-      raceData.sport_id = 73;
-      raceData.fi       = extractFI(data.url);
-
-      document.getElementById("loadStatus").textContent = `✓ ${raceData.runners.length} caballos cargados`;
-      renderRunners(raceData.runners);
-      toast(`${raceData.runners.length} caballos cargados ✓`);
+    await loadRaceQueue();
+    const races = Object.values(raceQueue);
+    if (races.length) {
+      document.getElementById("loadStatus").textContent = `✓ ${races.length} carrera(s) en cola`;
+      toast(`${races.length} carrera(s) cargadas ✓`);
+    } else {
+      document.getElementById("loadStatus").textContent = "No hay carreras cargadas aún.";
     }
   } catch(e) {
-    document.getElementById("loadStatus").textContent = "Error verificando carrera.";
+    document.getElementById("loadStatus").textContent = "Error verificando carreras.";
   }
 }
 
@@ -883,7 +1013,12 @@ function extractFI(url) {
 
 // Poll for new race data every 5 seconds when on carrera tab
 let racePoller = null;
-function startRacePolling() { racePoller = setInterval(checkForNewRace, 5000); }
+function startRacePolling() {
+  racePoller = setInterval(function() {
+    checkForNewRace();
+    loadRaceQueue();
+  }, 5000);
+}
 function stopRacePolling()  { if (racePoller) clearInterval(racePoller); }
 
 // ── Init ───────────────────────────────────────────────────────────────────
