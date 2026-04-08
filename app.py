@@ -562,8 +562,9 @@ def load_runners():
     pd = fragment.replace("/", "#")
     if not pd.startswith("#"):
         pd = "#" + pd
-    if pd.endswith("#"):
-        pd = pd[:-1]
+    # Ensure trailing # as API requires it
+    if not pd.endswith("#"):
+        pd = pd + "#"
 
     # Get any account with api_key (connected or not)
     accounts = load_accounts()
