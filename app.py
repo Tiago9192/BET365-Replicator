@@ -363,12 +363,13 @@ def logout_account(account_id):
     account = next((a for a in accounts if a["id"] == account_id), None)
     if not account or not account.get("session_id"):
         return jsonify({"error": "Sin sesión activa"}), 400
+    # First logout, then delete session to fully free the slot
     qrsolver_request("POST", f"/api/placebet/session/{account['session_id']}/logout/", account["api_key"])
+    qrsolver_request("DELETE", f"/api/placebet/session/{account['session_id']}/", account["api_key"])
     for a in accounts:
         if a["id"] == account_id:
             a["session_id"] = None
             a["status"]     = "disconnected"
-            # NOTE: current_ip is kept — history is permanent
     save_accounts(accounts)
     return jsonify({"success": True})
 
