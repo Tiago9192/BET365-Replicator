@@ -1117,7 +1117,7 @@ async function loadRaceByUrl(url, showToast = true) {
         odd_raw: r.odd_raw,
         odd_dec: r.odd_dec
       })),
-      name:      data.race_name || "Carrera",
+      name:      data.race_name && data.race_name !== "Carrera" ? data.race_name : ("Carrera " + new Date().toLocaleDateString('es')),
       ts:        new Date().toISOString().replace("Z","")
     };
 
@@ -1126,10 +1126,11 @@ async function loadRaceByUrl(url, showToast = true) {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
-        runners:  race.runners,
-        url:      url,
-        fi:       parseInt(fi),
-        sport_id: data.sport_id || 73
+        runners:   race.runners,
+        url:       url,
+        fi:        parseInt(fi),
+        sport_id:  data.sport_id || 73,
+        race_name: data.race_name || ""
       })
     });
 
