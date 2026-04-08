@@ -590,9 +590,20 @@ def load_runners():
 
     # Create guest session (slot should be free now)
     try:
+    # Encode special characters in proxy password
+        def encode_proxy(p):
+            if not p: return p
+            try:
+                from urllib.parse import urlparse as _up, quote as _q
+                parsed = _up(p)
+                if parsed.password:
+                    return p.replace(f":{parsed.password}@", f":{_q(parsed.password, safe='')}@")
+            except: pass
+            return p
+
         guest_body = {"domain": domain}
         if proxy:
-            guest_body["proxy"] = proxy
+            guest_body["proxy"] = encode_proxy(proxy)
 
         gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
 
