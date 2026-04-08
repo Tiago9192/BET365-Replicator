@@ -353,6 +353,28 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   <div id="historialList"><div class="empty-state">Sin historial aún.</div></div>
 </div>
 
+
+  <!-- CONFIG PANEL -->
+  <div id="tab-config" class="panel">
+    <div class="card">
+      <div class="card-title">Proxy para extracción de datos</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">
+        Este proxy se usa <b>exclusivamente</b> para obtener datos de carreras (guest session).<br>
+        Las cuentas usan sus propios proxies para apostar.<br>
+        Así nunca se mezclan las IPs.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Proxy Guest</label>
+        <input class="form-input" id="guestProxyInput"
+          placeholder="http://user:pass@host:port">
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="saveSettings()">
+        💾 Guardar
+      </button>
+      <div id="settingsStatus" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+    </div>
+  </div>
+
 </div><!-- /content -->
 
 <!-- FIRE BUTTON -->
@@ -376,15 +398,15 @@ let raceData = {
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 function switchTab(name) {
-  const names = ["carrera","saldos","cuentas","ips","historial"];
+  const names = ["carrera","saldos","cuentas","ips","historial","config"];
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", names[i]===name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
-  if (name==="carrera")  { loadRaceQueue(); checkForNewRace(); }
-  else                     stopRacePolling();
-  if (name==="saldos")   loadBalances();
-  if (name==="ips")      loadIPHistory();
-  if (name==="historial")renderBetHistory();
+  if (name==="carrera")   loadRaceQueue();
+  if (name==="saldos")    loadBalances();
+  if (name==="ips")       loadIPHistory();
+  if (name==="historial") renderBetHistory();
+  if (name==="config")    loadSettings();
 }
 
 function toast(msg, type="success") {
@@ -1219,6 +1241,37 @@ function extractFI(url) {
 let racePoller = null;
 function startRacePolling() {}   // disabled - manual updates only
 function stopRacePolling()  {}   // disabled
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const r = await fetch(`${API}/api/settings`);
+    const s = await r.json();
+    const el = document.getElementById("guestProxyInput");
+    if (el) el.value = s.guest_proxy || "";
+  } catch(e) {}
+}
+
+async function saveSettings() {
+  const guestProxy = document.getElementById("guestProxyInput").value.trim();
+  try {
+    const r = await fetch(`${API}/api/settings`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({guest_proxy: guestProxy})
+    });
+    const d = await r.json();
+    const status = document.getElementById("settingsStatus");
+    if (d.success) {
+      status.textContent = "✓ Configuración guardada";
+      status.style.color = "var(--green)";
+      toast("Configuración guardada ✓");
+    }
+    setTimeout(() => { if(status) status.textContent = ""; }, 3000);
+  } catch(e) {
+    toast("Error guardando configuración", "error");
+  }
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────
 setInterval(keepaliveAll, 9*60*1000);

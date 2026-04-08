@@ -95,7 +95,7 @@ def clear_ip_history():
 # ══════════════════════════════════════════════════════════════════
 
 def get_headers(api_key):
-    return {"Authorization": api_key, "Content-Type": "application/json"}
+    return {"Authorization": api_key.strip(), "Content-Type": "application/json"}
 
 def detect_ip_via_proxy(proxy_url):
     """Detect real outbound IP through the proxy. Tries 3 services."""
@@ -291,7 +291,7 @@ def add_account():
         "country_code": data["country_code"],
         "domain":       data.get("domain", "https://www.bet365.com/"),
         "proxy":        data.get("proxy",""),
-        "api_key":      data["api_key"],
+        "api_key":      data["api_key"].strip(),
         "session_id":   None,
         "status":       "disconnected",
         "current_ip":   None,
@@ -622,9 +622,14 @@ def load_runners():
             except: pass
             return p
 
+        # Use dedicated guest proxy if configured, otherwise fall back to account proxy
+        settings    = load_settings()
+        guest_proxy = settings.get("guest_proxy", "").strip()
+        proxy_for_guest = guest_proxy if guest_proxy else proxy
+
         guest_body = {"domain": domain}
-        if proxy:
-            guest_body["proxy"] = encode_proxy(proxy)
+        if proxy_for_guest:
+            guest_body["proxy"] = encode_proxy(proxy_for_guest)
 
         gs, gr = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
 
@@ -1015,6 +1020,36 @@ def race_clear():
     return jsonify({"success": True})
 
 
+
+
+# ══════════════════════════════════════════════════════════════════
+# SETTINGS — Global config (guest proxy, etc.)
+# ══════════════════════════════════════════════════════════════════
+
+SETTINGS_FILE = "settings.json"
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE) as f:
+            return json.load(f)
+    return {"guest_proxy": ""}
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    return jsonify(load_settings())
+
+@app.route("/api/settings", methods=["POST"])
+def update_settings():
+    data     = request.json
+    settings = load_settings()
+    if "guest_proxy" in data:
+        settings["guest_proxy"] = data["guest_proxy"].strip()
+    save_settings(settings)
+    return jsonify({"success": True, "settings": settings})
 
 @app.route("/static/extract.js")
 def serve_extract_js():
