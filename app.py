@@ -747,7 +747,7 @@ def place_bet_all():
                 "stake":          account_stake,
                 "accept_min_odd": 1.01,
                 "accept_max_odd": 1000.0,
-                "accept_odd_lines": True
+                "accept_odd_lines": []
             }],
             "stake": account_stake
         }
