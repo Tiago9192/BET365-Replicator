@@ -691,7 +691,7 @@ def load_runners():
         "sport_id":    sport_id,
         "fi":          fi,
         "fetch_error": fetch_error,
-        "raw_sample":  raw[:3000] if raw else "",
+        "raw_sample":  raw[-3000:] if len(raw) > 3000 else raw,
         "proxy_used":  proxy[:30] + "..." if proxy and len(proxy) > 30 else proxy
     })
 
