@@ -656,11 +656,25 @@ def load_runners():
         fetch_error = str(e)
 
 
+    # Extract venue and race name from raw stream
+    import re as _re
+    venue_match    = _re.search(r'N2=([^;|\n]+)', raw) if raw else None
+    racenum_match  = _re.search(r'N3=([^;|\n]+)', raw) if raw else None
+    venue_name     = venue_match.group(1).strip() if venue_match else ""
+    race_num_name  = racenum_match.group(1).strip() if racenum_match else ""
+    if venue_name and race_num_name:
+        race_name = f"{venue_name} — {race_num_name}"
+    elif venue_name:
+        race_name = venue_name
+    else:
+        race_name = ""
+
     return jsonify({
         "runners":     runners,
         "pd":          pd,
         "sport_id":    sport_id,
         "fi":          fi,
+        "race_name":   race_name,
         "fetch_error": fetch_error,
         "raw_sample":  raw[-3000:] if len(raw) > 3000 else raw,
         "proxy_used":  proxy[:30] + "..." if proxy and len(proxy) > 30 else proxy

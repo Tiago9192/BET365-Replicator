@@ -448,9 +448,9 @@ function renderRunners(runners) {
       <div class="runner-info">
         <div class="runner-name">${r.name}</div>
       </div>
-      <div class="runner-odd">
-        ${r.odd_raw}
-        <small>${r.odd_dec.toFixed(2)}x</small>
+        <div class="runner-odd">
+          ${r.odd_dec > 0 ? r.odd_dec.toFixed(2) : r.odd_raw}
+        </div>
       </div>
     </div>
   `).join("");
@@ -466,7 +466,7 @@ function selectRunner(id) {
   document.getElementById("runner-" + id)?.classList.add("selected");
 
   document.getElementById("selHorseName").textContent = runner.name;
-  document.getElementById("selHorseOdd").textContent  = `${runner.odd_raw} (${runner.odd_dec.toFixed(2)}x)`;
+  document.getElementById("selHorseOdd").textContent  = `${runner.odd_dec > 0 ? runner.odd_dec.toFixed(2) : runner.odd_raw}`;
   document.getElementById("betConfig").style.display  = "block";
   document.getElementById("oddCheckResult").style.display = "none";
   document.getElementById("betResults").innerHTML = "";
@@ -1117,7 +1117,7 @@ async function loadRaceByUrl(url, showToast = true) {
         odd_raw: r.odd_raw,
         odd_dec: r.odd_dec
       })),
-      name:      "Cargando...",
+      name:      data.race_name || "Carrera",
       ts:        new Date().toISOString().replace("Z","")
     };
 
