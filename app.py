@@ -507,7 +507,11 @@ def parse_prematch_runners(raw):
 
         sel_id = fields.get('ID', '')
         name   = fields.get('NA', '') or fields.get('NM', '')
-        odd    = fields.get('OD', '') or fields.get('OR', '') or fields.get('HA', '')
+        # FW = Fixed Win odds (fractional e.g. 4/1)
+        # FP = Fixed Place odds
+        # OD = decimal odds
+        # OR = order/position (NOT odds - ignore this)
+        odd    = fields.get('FW', '') or fields.get('OD', '') or fields.get('HA', '')
 
         try:
             sel_id_int = int(sel_id)
