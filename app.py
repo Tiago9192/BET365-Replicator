@@ -740,11 +740,14 @@ def place_bet_all():
         bet_body = {
             "type": "singles",
             "selections": [{
-                "sport_id": sport_id,
-                "fi":       fi,
-                "id":       selection_id,
-                "odd":      odd_raw,
-                "stake":    account_stake
+                "sport_id":       sport_id,
+                "fi":             fi,
+                "id":             selection_id,
+                "odd":            odd_raw,
+                "stake":          account_stake,
+                "accept_min_odd": 1.01,
+                "accept_max_odd": 1000.0,
+                "accept_odd_lines": True
             }],
             "stake": account_stake
         }
