@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Bet365 Replicator</title>
+<title>SIN LÍMITES</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#ffffff;--surface:#f8f8f8;--card:#ffffff;--border:#e5e5e5;--green:#16a34a;--green-dim:#15803d;--red:#dc2626;--orange:#ea580c;--yellow:#ca8a04;--blue:#2563eb;--text:#111111;--muted:#888888;}
@@ -168,7 +168,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 <body>
 
 <div class="header">
-  <div class="logo">bet<span>365</span> replica</div>
+  <div class="logo"><span style="font-size:22px;font-weight:300;vertical-align:middle;margin-right:4px;letter-spacing:-1px">∞</span><span>SIN LÍMITES</span></div>
   <div class="conn-badge" onclick="switchTab('saldos')" id="connBadge">0/0 ●</div>
 </div>
 
@@ -253,21 +253,16 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
       <div class="card-title">Configuración de la apuesta</div>
 
       <div class="form-group">
-        <label class="form-label">Stake por cuenta</label>
-        <input type="number" class="form-input" id="stakeInput" value="10" min="0.01" step="0.01">
+        <label class="form-label">Stake (unidades — ej: 0.75, 1, 1.5)</label>
+        <input type="number" class="form-input" id="stakeInput" value="1" min="0.25" step="0.25" oninput="updateStakePreview()">
+        <div id="stakePreview" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5"></div>
       </div>
 
-      <div class="odd-protection-row">
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Cuota mínima</label>
-          <input type="number" class="form-input" id="minOdd" placeholder="Ej: 2.5" step="0.01">
-        </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Caída máx (%)</label>
-          <input type="number" class="form-input" id="dropPct" value="10" min="1" max="50">
-        </div>
+      <div class="form-group">
+        <label class="form-label">Caída máxima de cuota (%)</label>
+        <input type="number" class="form-input" id="dropPct" value="10" min="1" max="50">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Si la cuota baja más de este % → apuesta bloqueada. Si sube → se acepta automáticamente.</div>
       </div>
-      <div style="font-size:11px;color:var(--muted)">Si la cuota cae más del % indicado o baja del mínimo → apuesta bloqueada automáticamente</div>
     </div>
 
     <div id="oddCheckResult" style="display:none"></div>
@@ -358,23 +353,42 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 
   <!-- CONFIG PANEL -->
   <div id="tab-config" class="panel">
+
+    <!-- Bankroll -->
+    <div class="card">
+      <div class="card-title">Bankroll</div>
+      <div class="form-group">
+        <label class="form-label">Bank global ($)</label>
+        <input class="form-input" id="globalBankInput" type="number" placeholder="4000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Máximo stake 1 por cuenta ($)</label>
+        <input class="form-input" id="maxStake1Input" type="number" placeholder="12" value="12">
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn btn-primary" style="flex:1" onclick="saveSettings()">💾 Guardar</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="distributeBank()">🎲 Distribuir ahora</button>
+      </div>
+      <div id="bankStatus" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+
+      <!-- Distribution table -->
+      <div id="bankDistribution"></div>
+    </div>
+
+    <!-- Proxy Guest -->
     <div class="card">
       <div class="card-title">Proxy para extracción de datos</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">
-        Este proxy se usa <b>exclusivamente</b> para obtener datos de carreras (guest session).<br>
-        Las cuentas usan sus propios proxies para apostar.<br>
-        Así nunca se mezclan las IPs.
+        IP exclusiva para obtener datos de carreras. Las cuentas usan sus propios proxies para apostar.
       </div>
       <div class="form-group">
         <label class="form-label">Proxy Guest</label>
-        <input class="form-input" id="guestProxyInput"
-          placeholder="http://user:pass@host:port">
+        <input class="form-input" id="guestProxyInput" placeholder="http://user:pass@host:port">
       </div>
-      <button class="btn btn-primary" style="width:100%" onclick="saveSettings()">
-        💾 Guardar
-      </button>
+      <button class="btn btn-primary" style="width:100%" onclick="saveSettings()">💾 Guardar</button>
       <div id="settingsStatus" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
     </div>
+
   </div>
 
 </div><!-- /content -->
@@ -405,6 +419,7 @@ function switchTab(name) {
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
   if (name==="carrera")   loadRaceQueue();
+loadBankStatus();
   if (name==="saldos")    loadBalances();
   if (name==="ips")       loadIPHistory();
   if (name==="historial") renderBetHistory();
@@ -526,7 +541,6 @@ async function placeBet() {
   if (!connected.length) { toast("Conecta las cuentas primero","error"); return; }
 
   const stake   = parseFloat(document.getElementById("stakeInput").value) || 10;
-  const minOdd  = document.getElementById("minOdd").value || null;
   const dropPct = parseFloat(document.getElementById("dropPct").value) || 10;
 
   isFiring = true;
@@ -546,7 +560,6 @@ async function placeBet() {
         selection_id: raceData.selected.id,
         odd:          raceData.selected.odd_raw,
         stake,
-        min_odd:      minOdd ? parseFloat(minOdd) : null,
         odd_drop_pct: dropPct
       })
     });
@@ -1249,30 +1262,101 @@ async function loadSettings() {
   try {
     const r = await fetch(`${API}/api/settings`);
     const s = await r.json();
-    const el = document.getElementById("guestProxyInput");
-    if (el) el.value = s.guest_proxy || "";
+    if (document.getElementById("guestProxyInput")) document.getElementById("guestProxyInput").value = s.guest_proxy || "";
+    if (document.getElementById("globalBankInput")) document.getElementById("globalBankInput").value = s.global_bank || "";
+    if (document.getElementById("maxStake1Input"))  document.getElementById("maxStake1Input").value  = s.max_stake1 || 12;
+    await loadBankStatus();
   } catch(e) {}
 }
 
 async function saveSettings() {
-  const guestProxy = document.getElementById("guestProxyInput").value.trim();
+  const guestProxy  = document.getElementById("guestProxyInput")?.value.trim() || "";
+  const globalBank  = parseFloat(document.getElementById("globalBankInput")?.value) || 0;
+  const maxStake1   = parseFloat(document.getElementById("maxStake1Input")?.value)  || 12;
   try {
     const r = await fetch(`${API}/api/settings`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({guest_proxy: guestProxy})
+      body: JSON.stringify({guest_proxy: guestProxy, global_bank: globalBank, max_stake1: maxStake1})
     });
     const d = await r.json();
-    const status = document.getElementById("settingsStatus");
     if (d.success) {
-      status.textContent = "✓ Configuración guardada";
-      status.style.color = "var(--green)";
       toast("Configuración guardada ✓");
+      const status = document.getElementById("settingsStatus");
+      if (status) { status.textContent = "✓ Guardado"; setTimeout(() => status.textContent = "", 3000); }
     }
-    setTimeout(() => { if(status) status.textContent = ""; }, 3000);
   } catch(e) {
     toast("Error guardando configuración", "error");
   }
+}
+
+async function distributeBank() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = "Distribuyendo...";
+  try {
+    const r = await fetch(`${API}/api/bankroll/distribute`, {method: "POST"});
+    const d = await r.json();
+    if (d.success) {
+      toast("Bank distribuido ✓");
+      await loadBankStatus();
+      updateStakePreview();
+    } else {
+      toast(d.error || "Error distribuyendo", "error");
+    }
+  } catch(e) {
+    toast("Error", "error");
+  }
+  btn.disabled = false;
+  btn.textContent = "🎲 Distribuir ahora";
+}
+
+async function loadBankStatus() {
+  try {
+    const r = await fetch(`${API}/api/bankroll/status`);
+    const d = await r.json();
+    const el = document.getElementById("bankDistribution");
+    const statusEl = document.getElementById("bankStatus");
+    if (!el) return;
+
+    if (!d.distribution || !d.distribution.length) {
+      el.innerHTML = "";
+      return;
+    }
+
+    if (statusEl) statusEl.textContent = `Total: $${d.total} · Última distribución: ${d.last_distribution || "nunca"}`;
+
+    el.innerHTML = `
+      <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:8px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Distribución actual</div>
+        ${d.distribution.map(a => `
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+            <span>${a.name}</span>
+            <span style="font-family:'Space Mono',monospace">
+              $${a.bank} · stake1 = <b>$${a.stake1}</b>
+            </span>
+          </div>
+        `).join("")}
+      </div>`;
+
+    // Store distribution for stake preview
+    window.bankDistribution = d.distribution;
+    updateStakePreview();
+  } catch(e) {}
+}
+
+function updateStakePreview() {
+  const units = parseFloat(document.getElementById("stakeInput")?.value) || 1;
+  const dist  = window.bankDistribution || [];
+  const el    = document.getElementById("stakePreview");
+  if (!el || !dist.length) return;
+
+  const lines = dist.map(a => {
+    const raw    = units * a.stake1;
+    const amount = Math.ceil(raw);
+    return `${a.name}: $${amount}`;
+  });
+  el.innerHTML = lines.join(" &nbsp;·&nbsp; ");
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

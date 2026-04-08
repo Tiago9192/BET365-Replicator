@@ -695,7 +695,6 @@ def place_bet_all():
     fi           = data.get("fi", 0)
     selection_id = data.get("selection_id", 0)
     odd_raw      = data.get("odd", "")
-    min_odd      = data.get("min_odd")        # minimum decimal odd user set
     odd_drop_pct = float(data.get("odd_drop_pct", 10))  # block if drops > X%
     pd_hash      = data.get("pd", "")
 
@@ -713,47 +712,31 @@ def place_bet_all():
     if not active:
         return jsonify({"error": "No hay cuentas conectadas"}), 400
 
-    # ── Odd protection: re-check current odd before firing ─────────────
-    original_decimal = odd_to_decimal(odd_raw)
+    # No odd protection — always fire regardless of odd change
     odd_check = {"checked": False, "blocked": False, "reason": ""}
 
-    if original_decimal:
-        api_key    = active[0]["api_key"]
-        proxy      = active[0].get("proxy", "")
-        guest_body = {"domain": "https://www.bet365.com/"}
-        if proxy:
-            guest_body["proxy"] = proxy
-        gs, gr  = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, guest_body)
-        if gs == 200 and "session_id" in gr:
-            _, pr   = qrsolver_request("GET",
-                                       f"/api/placebet/guest/{gr['session_id']}/prematch",
-                                       api_key, params={"pd": pd})
-            runners = parse_prematch_runners(pr if isinstance(pr, str) else json.dumps(pr))
-            current = next((r for r in runners if r["id"] == int(selection_id)), None)
+    # ── Fire on all accounts with random delay ──────────────────────────
+    import math as _math, random as _random
 
-            if current:
-                odd_check["checked"]      = True
-                odd_check["current_odd"]  = current["odd_dec"]
-                odd_check["original_odd"] = original_decimal
-                drop = (original_decimal - current["odd_dec"]) / original_decimal * 100
-                odd_check["drop_pct"]     = round(drop, 1)
+    # Get stake units from request (if using bankroll system)
+    stake_units = data.get("stake_units", None)
 
-                if min_odd and current["odd_dec"] < float(min_odd):
-                    odd_check["blocked"] = True
-                    odd_check["reason"]  = f"Cuota {current['odd_dec']} por debajo del mínimo {min_odd}"
+    def get_stake_for_account(account):
+        """Calculate stake for account using bankroll or fixed stake."""
+        if stake_units is not None:
+            account_stake1 = account.get("stake1", 0)
+            if account_stake1 > 0:
+                raw = stake_units * account_stake1
+                return int(_math.ceil(raw))  # round up to next integer
+        return stake  # fallback to fixed stake
 
-                elif drop > odd_drop_pct:
-                    odd_check["blocked"] = True
-                    odd_check["reason"]  = f"Cuota cayó {drop:.1f}% — supera el límite del {odd_drop_pct}%"
-
-                if not odd_check["blocked"]:
-                    odd_raw = current["odd_raw"]   # use fresh odd
-
-    if odd_check.get("blocked"):
-        return jsonify({"blocked": True, "odd_check": odd_check, "results": []})
-
-    # ── Fire on all accounts in parallel ───────────────────────────────
     def bet_one(account):
+        # Random delay 0-3 seconds to simulate human behavior
+        delay = _random.uniform(0, 3)
+        time.sleep(delay)
+
+        account_stake = get_stake_for_account(account)
+
         bet_body = {
             "type": "singles",
             "selections": [{
@@ -761,9 +744,9 @@ def place_bet_all():
                 "fi":       fi,
                 "id":       selection_id,
                 "odd":      odd_raw,
-                "stake":    stake
+                "stake":    account_stake
             }],
-            "stake": stake
+            "stake": account_stake
         }
         status, resp = qrsolver_request(
             "POST",
@@ -775,6 +758,8 @@ def place_bet_all():
             "id":      account["id"],
             "name":    account["name"],
             "ip":      account.get("current_ip", "—"),
+            "stake":   account_stake,
+            "delay":   round(delay, 2),
             "success": status == 200 and resp.get("result") == "OK",
             "receipt": resp.get("receipt"),
             "response": resp
@@ -1033,11 +1018,68 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f:
             return json.load(f)
-    return {"guest_proxy": ""}
+    return {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
 
 def save_settings(settings):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+
+def distribute_bank():
+    """Distribute global bank randomly among accounts respecting max stake 1 = $12."""
+    import math, random
+    settings     = load_settings()
+    global_bank  = float(settings.get("global_bank", 0))
+    max_stake1   = float(settings.get("max_stake1", 12))
+    max_bank     = max_stake1 * 100  # max bank per account
+
+    accounts = load_accounts()
+    if not accounts or global_bank <= 0:
+        return {"error": "Sin cuentas o bank no configurado"}
+
+    n = len(accounts)
+
+    # Generate random distribution summing to global_bank
+    # with max_bank per account
+    remaining = global_bank
+    banks = []
+
+    for i in range(n - 1):
+        accounts_left = n - i
+        max_for_this  = min(max_bank, remaining - (accounts_left - 1) * 0)
+        min_for_this  = 0
+        if max_for_this <= 0:
+            banks.append(0)
+            continue
+        # Random amount for this account
+        amount = random.uniform(min_for_this, max_for_this)
+        amount = round(amount / 100) * 100  # round to nearest 100
+        amount = min(amount, max_bank)
+        banks.append(amount)
+        remaining -= amount
+
+    # Last account gets the remainder
+    last = max(0, min(remaining, max_bank))
+    banks.append(round(last / 100) * 100)
+
+    # Fix rounding — ensure sum equals global_bank
+    diff = global_bank - sum(banks)
+    banks[0] += diff
+
+    # Save to accounts
+    for i, account in enumerate(accounts):
+        account["bank"] = max(0, banks[i])
+        account["stake1"] = math.ceil(account["bank"] * 0.01)  # 1% rounded up
+
+    save_accounts(accounts)
+
+    settings["last_distribution"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    save_settings(settings)
+
+    return {
+        "success":     True,
+        "distribution": [{"name": a["name"], "bank": a["bank"], "stake1": a["stake1"]} for a in accounts],
+        "total":        sum(a["bank"] for a in accounts)
+    }
 
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
@@ -1047,10 +1089,35 @@ def get_settings():
 def update_settings():
     data     = request.json
     settings = load_settings()
-    if "guest_proxy" in data:
-        settings["guest_proxy"] = data["guest_proxy"].strip()
+    if "guest_proxy"  in data: settings["guest_proxy"]  = data["guest_proxy"].strip()
+    if "global_bank"  in data: settings["global_bank"]  = float(data["global_bank"])
+    if "max_stake1"   in data: settings["max_stake1"]   = float(data["max_stake1"])
     save_settings(settings)
     return jsonify({"success": True, "settings": settings})
+
+@app.route("/api/bankroll/distribute", methods=["POST"])
+def bankroll_distribute():
+    """Manually trigger bank distribution."""
+    result = distribute_bank()
+    return jsonify(result)
+
+@app.route("/api/bankroll/status", methods=["GET"])
+def bankroll_status():
+    """Get current bank distribution per account."""
+    accounts = load_accounts()
+    settings = load_settings()
+    distribution = [{
+        "name":   a["name"],
+        "bank":   a.get("bank", 0),
+        "stake1": a.get("stake1", 0)
+    } for a in accounts]
+    return jsonify({
+        "global_bank":       settings.get("global_bank", 0),
+        "max_stake1":        settings.get("max_stake1", 12),
+        "last_distribution": settings.get("last_distribution", ""),
+        "distribution":      distribution,
+        "total":             sum(a.get("bank", 0) for a in accounts)
+    })
 
 @app.route("/static/extract.js")
 def serve_extract_js():
@@ -1073,6 +1140,25 @@ def index():
         with open("index.html") as f:
             return f.read()
     return "<h1>index.html not found</h1>", 404
+
+# ── Midnight auto-distribution ────────────────────────────────────────────────
+import threading
+
+def midnight_distribution():
+    while True:
+        now           = datetime.utcnow()
+        next_midnight = (now + __import__('datetime').timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        time.sleep((next_midnight - now).total_seconds())
+        try:
+            settings = load_settings()
+            if settings.get("global_bank", 0) > 0:
+                distribute_bank()
+        except Exception:
+            pass
+
+t_midnight = threading.Thread(target=midnight_distribution, daemon=True)
+t_midnight.start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
