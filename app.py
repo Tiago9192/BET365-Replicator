@@ -609,23 +609,23 @@ def load_runners():
     raw         = ""
     fetch_error = None
 
-    # Create guest session WITHOUT touching the main account session
-    # The guest session uses a separate slot — no logout needed
-    try:
-        def encode_proxy(p):
-            if not p: return p
-            try:
-                from urllib.parse import urlparse as _up, quote as _q
-                parsed = _up(p)
-                if parsed.password:
-                    return p.replace(f":{parsed.password}@", f":{_q(parsed.password, safe='')}@")
-            except: pass
-            return p
+    # Use dedicated guest proxy if configured, otherwise fall back to account proxy
+    def encode_proxy(p):
+        if not p: return p
+        try:
+            from urllib.parse import urlparse as _up, quote as _q
+            parsed = _up(p)
+            if parsed.password:
+                return p.replace(f":{parsed.password}@", f":{_q(parsed.password, safe='')}@")
+        except: pass
+        return p
 
-        # Use dedicated guest proxy if configured, otherwise fall back to account proxy
-        settings    = load_settings()
-        guest_proxy = settings.get("guest_proxy", "").strip()
-        proxy_for_guest = guest_proxy if guest_proxy else proxy
+    settings        = load_settings()
+    guest_proxy     = settings.get("guest_proxy", "").strip()
+    proxy_for_guest = guest_proxy if guest_proxy else proxy
+
+    # Create guest session WITHOUT touching the main account session
+    try:
 
         guest_body = {"domain": domain}
         if proxy_for_guest:
@@ -682,7 +682,7 @@ def load_runners():
         "race_name":   race_name,
         "fetch_error": fetch_error,
         "raw_sample":  raw[-3000:] if len(raw) > 3000 else raw,
-        "proxy_used":  proxy[:30] + "..." if proxy and len(proxy) > 30 else proxy
+        "proxy_used":  proxy_for_guest[:30] + "..." if proxy_for_guest and len(proxy_for_guest) > 30 else proxy_for_guest
     })
 
 @app.route("/api/placebet", methods=["POST"])
