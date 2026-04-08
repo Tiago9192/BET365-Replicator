@@ -610,17 +610,22 @@ def load_runners():
         if gs == 200 and "session_id" in gr:
             guest_id = gr["session_id"]
 
-            # Get prematch data
-            _, pr = qrsolver_request(
-                "GET",
-                f"/api/placebet/guest/{guest_id}/prematch",
-                api_key,
-                params={"pd": pd}
-            )
-            raw = pr if isinstance(pr, str) else json.dumps(pr)
+            # Get prematch data — response is text/plain streamed from bet365
+            url_pm = f"{QRSOLVER_BASE}/api/placebet/guest/{guest_id}/prematch"
+            headers_pm = get_headers(api_key)
+            try:
+                r_pm = requests.get(url_pm, headers=headers_pm, params={"pd": pd}, timeout=30, verify=False)
+                # Get raw text regardless of content type
+                raw = r_pm.text
+                if not raw:
+                    raw = r_pm.content.decode("utf-8", errors="replace")
+            except Exception as e_pm:
+                raw = json.dumps({"error": str(e_pm)})
 
-            if "invalid" not in raw.lower() and "error" not in raw.lower():
+            if "invalid" not in raw.lower() and "error" not in raw.lower() and "connecterror" not in raw.lower():
                 runners = parse_prematch_runners(raw)
+            else:
+                fetch_error = f"Prematch error: {raw[:200]}"
 
             # Close guest session immediately
             qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
@@ -665,7 +670,8 @@ def load_runners():
         "sport_id":    sport_id,
         "fi":          fi,
         "fetch_error": fetch_error,
-        "raw_sample":  raw[:600] if raw else ""
+        "raw_sample":  raw[:800] if raw else "",
+        "proxy_used":  proxy[:30] + "..." if proxy and len(proxy) > 30 else proxy
     })
 
 @app.route("/api/placebet", methods=["POST"])
