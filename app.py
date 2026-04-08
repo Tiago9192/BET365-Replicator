@@ -479,9 +479,9 @@ def odd_to_decimal(odd_str):
 
 def parse_prematch_runners(raw):
     """
-    Parse bet365 raw data stream to extract horse runners.
-    Bet365 uses a pipe-delimited proprietary format.
-    Handles both JSON responses and raw text streams.
+    Parse bet365 pipe-delimited stream to extract horse runners.
+    Format: F|CL;...|EV;...|SE;ID=123;NA=HorseName;OD=9/2;...
+    SE = Selection record, PA = Participant record
     """
     import re
     runners = []
@@ -489,50 +489,71 @@ def parse_prematch_runners(raw):
         return runners
 
     text = raw if isinstance(raw, str) else json.dumps(raw)
+    seen_ids = set()
 
-    seen_names = set()
-    seen_ids   = set()
+    # Method 1: Parse bet365 pipe-delimited format
+    # Records separated by | with fields separated by ;
+    records = text.split('|')
+    for rec in records:
+        rec_type = rec.split(';')[0] if ';' in rec else rec[:4]
+        if rec_type not in ('SE', 'PA', 'SL', 'OC', 'TL'):
+            continue
 
-    # Pattern 1: ID|Name|Odd (pipe delimited — bet365 stream format)
-    # Example: 192388023|El Vikingo|9/2
-    p1 = re.compile(r'(\d{6,12})\|([A-Za-z][A-Za-z0-9 \'\-\.áéíóúñÁÉÍÓÚÑ]{2,35})\|(\d+/\d+|\d+\.\d{1,2})')
-    for m in p1.finditer(text):
-        sel_id = int(m.group(1))
-        name   = m.group(2).strip()
-        odd    = m.group(3).strip()
-        dec    = odd_to_decimal(odd)
-        if dec and dec > 1.0 and name not in seen_names and sel_id not in seen_ids:
-            seen_names.add(name)
-            seen_ids.add(sel_id)
-            runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
+        fields = {}
+        for f in rec.split(';'):
+            if '=' in f:
+                k, _, v = f.partition('=')
+                fields[k.strip()] = v.strip()
 
-    # Pattern 2: semicolon delimited
+        sel_id = fields.get('ID', '')
+        name   = fields.get('NA', '') or fields.get('NM', '')
+        odd    = fields.get('OD', '') or fields.get('OR', '') or fields.get('HA', '')
+
+        try:
+            sel_id_int = int(sel_id)
+        except:
+            # Try extracting from IT field
+            it = fields.get('IT', '')
+            m = re.search(r'_(\d{7,12})(?:_|$)', it)
+            sel_id_int = int(m.group(1)) if m else 0
+
+        if name and len(name) > 1 and sel_id_int not in seen_ids:
+            dec = odd_to_decimal(odd) if odd else 0
+            seen_ids.add(sel_id_int)
+            runners.append({
+                "id":      sel_id_int,
+                "name":    name,
+                "odd_raw": odd or "SP",
+                "odd_dec": dec or 0
+            })
+
+    # Method 2: Regex for NA=Name patterns with odds
     if not runners:
-        p2 = re.compile(r'(\d{6,12});([A-Za-z][A-Za-z0-9 \'\-\.áéíóúñ]{2,35});(\d+/\d+|\d+\.\d{1,2})')
+        p = re.compile(r'NA=([A-Za-z][A-Za-z0-9 \'\-\.]{2,35});[^|]*?(?:OD|OR)=(\d+/\d+|\d+\.\d+)')
+        seen = set()
+        for m in p.finditer(text):
+            name = m.group(1).strip()
+            odd  = m.group(2).strip()
+            dec  = odd_to_decimal(odd)
+            if name and name not in seen:
+                seen.add(name)
+                runners.append({"id": 0, "name": name, "odd_raw": odd, "odd_dec": dec or 0})
+
+    # Method 3: broad regex fallback
+    if not runners:
+        p2 = re.compile(r'(\d{7,12})[^\d]([A-Za-z][A-Za-z0-9 \'\-\.]{2,30})[^\d](\d+/\d+)')
+        seen2 = set()
         for m in p2.finditer(text):
-            sel_id = int(m.group(1))
-            name   = m.group(2).strip()
-            odd    = m.group(3).strip()
-            dec    = odd_to_decimal(odd)
-            if dec and dec > 1.0 and name not in seen_names and sel_id not in seen_ids:
-                seen_names.add(name)
-                seen_ids.add(sel_id)
-                runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
+            name = m.group(2).strip()
+            odd  = m.group(3).strip()
+            sid  = int(m.group(1))
+            dec  = odd_to_decimal(odd)
+            if dec and dec > 1.0 and name not in seen2:
+                seen2.add(name)
+                runners.append({"id": sid, "name": name, "odd_raw": odd, "odd_dec": dec})
 
-    # Pattern 3: any separator — broad fallback
-    if not runners:
-        p3 = re.compile(r'(\d{6,12})[^\d]([A-Za-z][A-Za-z0-9 \'\-\.]{2,35})[^\d](\d+/\d+)')
-        for m in p3.finditer(text):
-            sel_id = int(m.group(1))
-            name   = m.group(2).strip()
-            odd    = m.group(3).strip()
-            dec    = odd_to_decimal(odd)
-            if dec and dec > 1.0 and name not in seen_names and sel_id not in seen_ids:
-                seen_names.add(name)
-                seen_ids.add(sel_id)
-                runners.append({"id": sel_id, "name": name, "odd_raw": odd, "odd_dec": dec})
+    return sorted(runners, key=lambda x: x["odd_dec"]) if runners else runners
 
-    return sorted(runners, key=lambda x: x["odd_dec"])
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -670,7 +691,7 @@ def load_runners():
         "sport_id":    sport_id,
         "fi":          fi,
         "fetch_error": fetch_error,
-        "raw_sample":  raw[:800] if raw else "",
+        "raw_sample":  raw[:3000] if raw else "",
         "proxy_used":  proxy[:30] + "..." if proxy and len(proxy) > 30 else proxy
     })
 
