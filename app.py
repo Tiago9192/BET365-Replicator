@@ -609,13 +609,9 @@ def load_runners():
     raw         = ""
     fetch_error = None
 
-    # Logout existing session if any (free the slot)
-    if session_id:
-        qrsolver_request("POST", f"/api/placebet/session/{session_id}/logout/", api_key)
-
-    # Create guest session (slot should be free now)
+    # Create guest session WITHOUT touching the main account session
+    # The guest session uses a separate slot — no logout needed
     try:
-    # Encode special characters in proxy password
         def encode_proxy(p):
             if not p: return p
             try:
@@ -640,7 +636,6 @@ def load_runners():
             headers_pm = get_headers(api_key)
             try:
                 r_pm = requests.get(url_pm, headers=headers_pm, params={"pd": pd}, timeout=30, verify=False)
-                # Get raw text regardless of content type
                 raw = r_pm.text
                 if not raw:
                     raw = r_pm.content.decode("utf-8", errors="replace")
@@ -652,7 +647,7 @@ def load_runners():
             else:
                 fetch_error = f"Prematch error: {raw[:200]}"
 
-            # Close guest session immediately
+            # Close guest session immediately to free the slot
             qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
         else:
             fetch_error = f"Error creando guest: {gr}"
@@ -660,34 +655,6 @@ def load_runners():
     except Exception as e:
         fetch_error = str(e)
 
-    # Step 3: Re-login account session
-    try:
-        login_body = {
-            "domain":       domain,
-            "username":     account["username"],
-            "password":     account["password"],
-            "country_code": account["country_code"],
-            "keepalive":    True
-        }
-        if proxy:
-            login_body["proxy"] = proxy
-
-        # Create new session
-        cs, cr = qrsolver_request("POST", "/api/placebet/create/", api_key, login_body)
-        if cs == 200 and "session_id" in cr:
-            new_session_id = cr["session_id"]
-            # Login
-            qrsolver_request("POST", f"/api/placebet/session/{new_session_id}/login/", api_key, login_body)
-            # Update account
-            fresh = load_accounts()
-            for a in fresh:
-                if a["id"] == account["id"]:
-                    a["session_id"] = new_session_id
-                    a["status"]     = "connected"
-            save_accounts(fresh)
-
-    except Exception as e:
-        pass  # Re-login failed but we still return runners
 
     return jsonify({
         "runners":     runners,
