@@ -20,57 +20,81 @@ MAX_IP_RETRIES = 15
 # DATABASE — PostgreSQL via Railway
 # ══════════════════════════════════════════════════════════════════
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import pg8000.native
+from urllib.parse import urlparse as _pg_urlparse
 
 def get_db():
     db_url = os.environ.get("DATABASE_URL", "")
     if not db_url:
         raise Exception("DATABASE_URL not configured")
-    return psycopg2.connect(db_url)
+    p = _pg_urlparse(db_url)
+    return pg8000.native.Connection(
+        host=p.hostname,
+        port=p.port or 5432,
+        database=p.path.lstrip("/"),
+        user=p.username,
+        password=p.password,
+        ssl_context=True
+    )
+
+def db_exec(sql, params=None):
+    """Execute SQL and return rows as list of dicts."""
+    conn = get_db()
+    try:
+        if params:
+            rows = conn.run(sql, *params)
+        else:
+            rows = conn.run(sql)
+        cols = [c["name"] for c in conn.columns] if conn.columns else []
+        return [dict(zip(cols, row)) for row in (rows or [])]
+    finally:
+        conn.close()
+
+def db_run(sql, params=None):
+    """Execute SQL without returning rows."""
+    conn = get_db()
+    try:
+        if params:
+            conn.run(sql, *params)
+        else:
+            conn.run(sql)
+    finally:
+        conn.close()
 
 def init_db():
     """Create tables if they don't exist."""
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS accounts (
-                    id SERIAL PRIMARY KEY,
-                    data JSONB NOT NULL
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS ip_history (
-                    ip TEXT PRIMARY KEY,
-                    data JSONB NOT NULL
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value JSONB NOT NULL
-                )
-            """)
-        conn.commit()
+    db_run("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            id SERIAL PRIMARY KEY,
+            data TEXT NOT NULL
+        )
+    """)
+    db_run("""
+        CREATE TABLE IF NOT EXISTS ip_history (
+            ip TEXT PRIMARY KEY,
+            data TEXT NOT NULL
+        )
+    """)
+    db_run("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
 
 def load_accounts():
     try:
-        with get_db() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT data FROM accounts ORDER BY (data->>'id')::int")
-                rows = cur.fetchall()
-                return [row["data"] for row in rows]
-    except Exception:
+        rows = db_exec("SELECT data FROM accounts ORDER BY (data::json->>'id')::int")
+        return [json.loads(row["data"]) for row in rows]
+    except Exception as e:
+        print(f"Error loading accounts: {e}")
         return []
 
 def save_accounts(accounts):
     try:
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM accounts")
-                for a in accounts:
-                    cur.execute("INSERT INTO accounts (data) VALUES (%s)", [json.dumps(a)])
-            conn.commit()
+        db_run("DELETE FROM accounts")
+        for a in accounts:
+            db_run("INSERT INTO accounts (data) VALUES (:1)", [json.dumps(a)])
     except Exception as e:
         print(f"Error saving accounts: {e}")
 
@@ -78,22 +102,17 @@ def save_accounts(accounts):
 
 def load_ip_history():
     try:
-        with get_db() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT ip, data FROM ip_history")
-                return {row["ip"]: row["data"] for row in cur.fetchall()}
+        rows = db_exec("SELECT ip, data FROM ip_history")
+        return {row["ip"]: json.loads(row["data"]) for row in rows}
     except Exception:
         return {}
 
 def save_ip_history(history):
     try:
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM ip_history")
-                for ip, data in history.items():
-                    cur.execute("INSERT INTO ip_history (ip, data) VALUES (%s, %s)",
-                               [ip, json.dumps(data)])
-            conn.commit()
+        db_run("DELETE FROM ip_history")
+        for ip, data in history.items():
+            db_run("INSERT INTO ip_history (ip, data) VALUES (:1, :2)",
+                   [ip, json.dumps(data)])
     except Exception as e:
         print(f"Error saving IP history: {e}")
 
@@ -1083,27 +1102,21 @@ def race_clear():
 
 def load_settings():
     try:
-        with get_db() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT key, value FROM settings")
-                rows = cur.fetchall()
-                result = {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
-                for row in rows:
-                    result[row["key"]] = row["value"]
-                return result
+        rows = db_exec("SELECT key, value FROM settings")
+        result = {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
+        for row in rows:
+            result[row["key"]] = json.loads(row["value"])
+        return result
     except Exception:
         return {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
 
 def save_settings(settings):
     try:
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                for key, value in settings.items():
-                    cur.execute("""
-                        INSERT INTO settings (key, value) VALUES (%s, %s)
-                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                    """, [key, json.dumps(value)])
-            conn.commit()
+        for key, value in settings.items():
+            db_run("""
+                INSERT INTO settings (key, value) VALUES (:1, :2)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """, [key, json.dumps(value)])
     except Exception as e:
         print(f"Error saving settings: {e}")
 
