@@ -79,10 +79,13 @@ def init_db():
 def load_accounts():
     try:
         rows = db_exec("SELECT data FROM accounts")
+        print(f"DEBUG load_accounts: got {len(rows)} rows")
         accounts = [json.loads(row["data"]) for row in rows]
         return sorted(accounts, key=lambda a: a.get("id", 0))
     except Exception as e:
-        print(f"Error loading accounts: {e}")
+        print(f"ERROR load_accounts: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def save_accounts(accounts):
@@ -92,10 +95,13 @@ def save_accounts(accounts):
             conn.run("DELETE FROM accounts")
             for a in accounts:
                 conn.run("INSERT INTO accounts (data) VALUES (:1)", json.dumps(a))
+            print(f"DEBUG save_accounts: saved {len(accounts)} accounts")
         finally:
             conn.close()
     except Exception as e:
-        print(f"Error saving accounts: {e}")
+        print(f"ERROR save_accounts: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ── IP History ────────────────────────────────────────────────────────────────
 
