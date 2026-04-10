@@ -13,46 +13,89 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-DATA_FILE    = "accounts.json"
-IP_HIST_FILE = "ip_history.json"
-QRSOLVER_BASE = "https://qrsolver.com"
-MAX_IP_RETRIES = 15   # Max reconnection attempts to get a fresh unique IP
+QRSOLVER_BASE  = "https://qrsolver.com"
+MAX_IP_RETRIES = 15
 
 # ══════════════════════════════════════════════════════════════════
-# STORAGE
+# DATABASE — PostgreSQL via Railway
 # ══════════════════════════════════════════════════════════════════
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+def get_db():
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        raise Exception("DATABASE_URL not configured")
+    return psycopg2.connect(db_url)
+
+def init_db():
+    """Create tables if they don't exist."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS accounts (
+                    id SERIAL PRIMARY KEY,
+                    data JSONB NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ip_history (
+                    ip TEXT PRIMARY KEY,
+                    data JSONB NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value JSONB NOT NULL
+                )
+            """)
+        conn.commit()
 
 def load_accounts():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE) as f:
-            return json.load(f)
-    return []
+    try:
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT data FROM accounts ORDER BY (data->>'id')::int")
+                rows = cur.fetchall()
+                return [row["data"] for row in rows]
+    except Exception:
+        return []
 
 def save_accounts(accounts):
-    with open(DATA_FILE, "w") as f:
-        json.dump(accounts, f, indent=2)
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM accounts")
+                for a in accounts:
+                    cur.execute("INSERT INTO accounts (data) VALUES (%s)", [json.dumps(a)])
+            conn.commit()
+    except Exception as e:
+        print(f"Error saving accounts: {e}")
 
-# ── IP History Registry ────────────────────────────────────────────────────────
-# {
-#   "190.12.34.56": {
-#       "account_id": 2,
-#       "account_name": "Cuenta 2",
-#       "first_seen": "2025-01-01T10:00:00",
-#       "last_seen":  "2025-01-01T10:00:00",
-#       "times_used": 3
-#   },
-#   ...
-# }
+# ── IP History ────────────────────────────────────────────────────────────────
 
 def load_ip_history():
-    if os.path.exists(IP_HIST_FILE):
-        with open(IP_HIST_FILE) as f:
-            return json.load(f)
-    return {}
+    try:
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT ip, data FROM ip_history")
+                return {row["ip"]: row["data"] for row in cur.fetchall()}
+    except Exception:
+        return {}
 
 def save_ip_history(history):
-    with open(IP_HIST_FILE, "w") as f:
-        json.dump(history, f, indent=2)
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM ip_history")
+                for ip, data in history.items():
+                    cur.execute("INSERT INTO ip_history (ip, data) VALUES (%s, %s)",
+                               [ip, json.dumps(data)])
+            conn.commit()
+    except Exception as e:
+        print(f"Error saving IP history: {e}")
 
 def record_ip(ip, account_id, account_name):
     """Add or update an IP entry in the permanent history."""
@@ -304,6 +347,22 @@ def add_account():
 @app.route("/api/accounts/<int:account_id>", methods=["DELETE"])
 def delete_account(account_id):
     accounts = [a for a in load_accounts() if a["id"] != account_id]
+    save_accounts(accounts)
+    return jsonify({"success": True})
+
+@app.route("/api/accounts/<int:account_id>", methods=["PATCH"])
+def update_account(account_id):
+    data     = request.json
+    accounts = load_accounts()
+    account  = next((a for a in accounts if a["id"] == account_id), None)
+    if not account:
+        return jsonify({"error": "Cuenta no encontrada"}), 404
+
+    # Update allowed fields
+    for field in ["name","username","password","country_code","domain","proxy","api_key"]:
+        if field in data:
+            account[field] = data[field].strip() if isinstance(data[field], str) else data[field]
+
     save_accounts(accounts)
     return jsonify({"success": True})
 
@@ -910,6 +969,13 @@ def refresh_race():
     return load_runners()
 
 # ── Race Queue (in-memory, multiple races) ────────────────────────────────
+# Initialize database on startup
+try:
+    init_db()
+    print("Database initialized OK")
+except Exception as e:
+    print(f"Database init error: {e}")
+
 if "RACE_QUEUE" not in app.config:
     app.config["RACE_QUEUE"] = {}   # key = fi (fixture id)
 
@@ -1015,17 +1081,31 @@ def race_clear():
 # SETTINGS — Global config (guest proxy, etc.)
 # ══════════════════════════════════════════════════════════════════
 
-SETTINGS_FILE = "settings.json"
-
 def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE) as f:
-            return json.load(f)
-    return {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
+    try:
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT key, value FROM settings")
+                rows = cur.fetchall()
+                result = {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
+                for row in rows:
+                    result[row["key"]] = row["value"]
+                return result
+    except Exception:
+        return {"guest_proxy": "", "global_bank": 0, "max_stake1": 12, "last_distribution": ""}
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                for key, value in settings.items():
+                    cur.execute("""
+                        INSERT INTO settings (key, value) VALUES (%s, %s)
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                    """, [key, json.dumps(value)])
+            conn.commit()
+    except Exception as e:
+        print(f"Error saving settings: {e}")
 
 def distribute_bank():
     """Distribute global bank randomly among accounts respecting max stake 1 = $12."""

@@ -394,6 +394,36 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 </div><!-- /content -->
 
 <!-- FIRE BUTTON -->
+<!-- Edit Account Modal -->
+<div id="editModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:15px;font-weight:700">Editar cuenta</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeEditForm()">✕</button>
+    </div>
+    <input type="hidden" id="editId">
+    <div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="editName"></div>
+    <div class="form-group"><label class="form-label">Usuario (email)</label><input class="form-input" id="editUsername"></div>
+    <div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" type="password" id="editPassword"></div>
+    <div class="form-group"><label class="form-label">Código de país</label><input class="form-input" id="editCountry" placeholder="CL, ES, MX..."></div>
+    <div class="form-group">
+      <label class="form-label">Dominio Bet365</label>
+      <select class="form-input" id="editDomain">
+        <option value="https://www.bet365.com/">bet365.com (Chile, México, Argentina...)</option>
+        <option value="https://www.bet365.es/">bet365.es (España)</option>
+        <option value="https://www.bet365.com.au/">bet365.com.au (Australia)</option>
+        <option value="https://www.bet365.it/">bet365.it (Italia)</option>
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Proxy</label><input class="form-input" id="editProxy" placeholder="http://user:pass@host:port"></div>
+    <div class="form-group"><label class="form-label">API Key QRSolver</label><input class="form-input" id="editApiKey"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeEditForm()">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveEditAccount()">💾 Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
 <div id="fireZone">
   <button id="fireBtn" class="empty" onclick="placeBet()">🚫 Selecciona un caballo</button>
 </div>
@@ -693,6 +723,7 @@ function renderAccounts() {
         ${a.status==="connected"
           ?`<button class="btn btn-ghost btn-sm" onclick="logoutAccount(${a.id})">Salir</button>`
           :`<button class="btn btn-primary btn-sm" onclick="loginOne(${a.id})">Conectar</button>`}
+        <button class="btn btn-ghost btn-sm" onclick="openEditForm(${a.id})" title="Editar">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="deleteAccount(${a.id})">✕</button>
       </div>
     </div>`).join("");
@@ -718,6 +749,64 @@ async function addAccount() {
 }
 
 async function deleteAccount(id){if(!confirm("¿Eliminar?"))return;await fetch(`${API}/api/accounts/${id}`,{method:"DELETE"});toast("Eliminada");loadAccounts();}
+
+function openEditForm(id) {
+  const a = accounts.find(a => a.id === id);
+  if (!a) return;
+
+  // Fill edit form
+  document.getElementById("editId").value       = a.id;
+  document.getElementById("editName").value     = a.name;
+  document.getElementById("editUsername").value = a.username;
+  document.getElementById("editPassword").value = a.password;
+  document.getElementById("editCountry").value  = a.country_code;
+  document.getElementById("editProxy").value    = a.proxy || "";
+  document.getElementById("editApiKey").value   = a.api_key;
+
+  // Set domain
+  const domainSelect = document.getElementById("editDomain");
+  for (let i = 0; i < domainSelect.options.length; i++) {
+    if (domainSelect.options[i].value === a.domain) {
+      domainSelect.selectedIndex = i;
+      break;
+    }
+  }
+
+  document.getElementById("editModal").style.display = "flex";
+}
+
+function closeEditForm() {
+  document.getElementById("editModal").style.display = "none";
+}
+
+async function saveEditAccount() {
+  const id   = parseInt(document.getElementById("editId").value);
+  const body = {
+    name:         document.getElementById("editName").value,
+    username:     document.getElementById("editUsername").value,
+    password:     document.getElementById("editPassword").value,
+    country_code: document.getElementById("editCountry").value,
+    domain:       document.getElementById("editDomain").value,
+    proxy:        document.getElementById("editProxy").value,
+    api_key:      document.getElementById("editApiKey").value
+  };
+
+  if (!body.name || !body.username || !body.api_key) {
+    toast("Completa los campos obligatorios", "error");
+    return;
+  }
+
+  const r = await fetch(`${API}/api/accounts/${id}`, {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (d.error) { toast(d.error, "error"); return; }
+  toast("Cuenta actualizada ✓");
+  closeEditForm();
+  loadAccounts();
+}
 async function loginOne(id){const a=accounts.find(a=>a.id===id);if(a)a.status="loading";renderAccounts();toast("Conectando...","info");const r=await fetch(`${API}/api/accounts/${id}/login`,{method:"POST"});const d=await r.json();if(d.error)toast(d.error,"error");else if(d.success)toast(`Conectada ✓ — IP: ${d.ip||"?"}`);else toast("Error conectando","error");loadAccounts();}
 async function logoutAccount(id){await fetch(`${API}/api/accounts/${id}/logout`,{method:"POST"});toast("Sesión cerrada");loadAccounts();}
 async function loginAll(){toast("Conectando y verificando IPs...","info");accounts.forEach(a=>a.status="loading");renderAccounts();const r=await fetch(`${API}/api/login-all`,{method:"POST"});const d=await r.json();const s=d.summary||{};toast(`${s.connected||0}/${s.total||0} conectadas`);loadAccounts();}
