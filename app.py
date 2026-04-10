@@ -37,27 +37,21 @@ def get_db():
         ssl_context=True
     )
 
-def db_exec(sql, params=None):
+def db_exec(sql, *params):
     """Execute SQL and return rows as list of dicts."""
     conn = get_db()
     try:
-        if params:
-            rows = conn.run(sql, *params)
-        else:
-            rows = conn.run(sql)
+        rows = conn.run(sql, *params)
         cols = [c["name"] for c in conn.columns] if conn.columns else []
         return [dict(zip(cols, row)) for row in (rows or [])]
     finally:
         conn.close()
 
-def db_run(sql, params=None):
+def db_run(sql, *params):
     """Execute SQL without returning rows."""
     conn = get_db()
     try:
-        if params:
-            conn.run(sql, *params)
-        else:
-            conn.run(sql)
+        conn.run(sql, *params)
     finally:
         conn.close()
 
@@ -84,17 +78,22 @@ def init_db():
 
 def load_accounts():
     try:
-        rows = db_exec("SELECT data FROM accounts ORDER BY (data::json->>'id')::int")
-        return [json.loads(row["data"]) for row in rows]
+        rows = db_exec("SELECT data FROM accounts")
+        accounts = [json.loads(row["data"]) for row in rows]
+        return sorted(accounts, key=lambda a: a.get("id", 0))
     except Exception as e:
         print(f"Error loading accounts: {e}")
         return []
 
 def save_accounts(accounts):
     try:
-        db_run("DELETE FROM accounts")
-        for a in accounts:
-            db_run("INSERT INTO accounts (data) VALUES (:1)", [json.dumps(a)])
+        conn = get_db()
+        try:
+            conn.run("DELETE FROM accounts")
+            for a in accounts:
+                conn.run("INSERT INTO accounts (data) VALUES (:1)", json.dumps(a))
+        finally:
+            conn.close()
     except Exception as e:
         print(f"Error saving accounts: {e}")
 
@@ -109,10 +108,14 @@ def load_ip_history():
 
 def save_ip_history(history):
     try:
-        db_run("DELETE FROM ip_history")
-        for ip, data in history.items():
-            db_run("INSERT INTO ip_history (ip, data) VALUES (:1, :2)",
-                   [ip, json.dumps(data)])
+        conn = get_db()
+        try:
+            conn.run("DELETE FROM ip_history")
+            for ip, data in history.items():
+                conn.run("INSERT INTO ip_history (ip, data) VALUES (:1, :2)",
+                         ip, json.dumps(data))
+        finally:
+            conn.close()
     except Exception as e:
         print(f"Error saving IP history: {e}")
 
@@ -1112,11 +1115,15 @@ def load_settings():
 
 def save_settings(settings):
     try:
-        for key, value in settings.items():
-            db_run("""
-                INSERT INTO settings (key, value) VALUES (:1, :2)
-                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-            """, [key, json.dumps(value)])
+        conn = get_db()
+        try:
+            for key, value in settings.items():
+                conn.run("""
+                    INSERT INTO settings (key, value) VALUES (:1, :2)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                """, key, json.dumps(value))
+        finally:
+            conn.close()
     except Exception as e:
         print(f"Error saving settings: {e}")
 
