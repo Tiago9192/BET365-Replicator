@@ -362,6 +362,15 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   <!-- CONFIG PANEL -->
   <div id="tab-config" class="panel">
 
+    <!-- Theme toggle -->
+    <div class="card">
+      <div class="card-title">Apariencia</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px">Modo oscuro / claro</span>
+        <button onclick="toggleTheme()" id="themeToggle" style="background:none;border:1px solid var(--border);border-radius:20px;padding:6px 14px;cursor:pointer;font-size:14px;color:var(--text)">🌙</button>
+      </div>
+    </div>
+
     <!-- Bankroll -->
     <div class="card">
       <div class="card-title">Bankroll</div>
