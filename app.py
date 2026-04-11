@@ -1319,10 +1319,28 @@ def service_worker():
 def add_redirect():
     """iOS Shortcut opens this URL with the race link. Saves to queue and redirects to app."""
     import re
+    from flask import redirect as _redirect
+
+    # iOS cuts URL at # - get the full raw URL from the request
+    # The full URL including fragment is in request.url
+    full_url = request.url  # this is our /add?url=... URL
+    
+    # Extract the bet365 URL from query string
     url = request.args.get("url", "").strip()
+    
+    # Also check if bet365 URL is in the fragment (after #)
+    if not url or "bet365" not in url:
+        # Try to get it from raw query string
+        raw_qs = request.query_string.decode("utf-8")
+        if "bet365" in raw_qs:
+            url = raw_qs.replace("url=", "", 1)
+    
+    print(f"DEBUG /add received url: '{url[:100] if url else 'empty'}'")
+    print(f"DEBUG full request URL: '{full_url[:200]}'")
+    
     if url and "bet365" in url:
         fm = re.search(r'/F(\d+)/', url)
-        fi = str(fm.group(1)) if fm else "0"
+        fi = str(fm.group(1)) if fm else str(hash(url))[-8:]
         date_match = re.search(r'D(\d{8})', url)
         race_date  = date_match.group(1) if date_match else ""
         if race_date:
@@ -1336,8 +1354,9 @@ def add_redirect():
                 "ts": datetime.utcnow().isoformat(), "selected": None
             }
             app.config["RACE_QUEUE"] = queue
-    from flask import redirect
-    return redirect("/")
+            print(f"DEBUG added race fi={fi} to queue, total={len(queue)}")
+    
+    return _redirect("/")
 
 @app.route("/")
 def index():
