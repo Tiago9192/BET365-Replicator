@@ -16,14 +16,15 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f0f0f;--surface:#1a1a1a;--card:#242424;--border:#333333;--green:#22c55e;--green-dim:#16a34a;--red:#ef4444;--orange:#f97316;--yellow:#eab308;--blue:#3b82f6;--text:#f5f5f5;--muted:#777777;}}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;}
-#splash{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.4s;}
+#splash{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.5s ease;}
 #splash.hidden{opacity:0;pointer-events:none;}
-#splash .splash-logo{font-size:48px;font-weight:800;letter-spacing:-2px;margin-bottom:8px;}
-#splash .splash-logo span{color:var(--green);}
-#splash .splash-sub{font-size:13px;color:var(--muted);}
-#splash .splash-loader{width:40px;height:3px;background:var(--border);border-radius:2px;margin-top:24px;overflow:hidden;}
-#splash .splash-loader::after{content:'';display:block;width:40%;height:100%;background:var(--green);border-radius:2px;animation:splashLoad 1s ease-in-out infinite;}
-@keyframes splashLoad{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+#splash-inf{font-size:64px;font-weight:200;color:var(--green);letter-spacing:-4px;line-height:1;}
+#splash-title{font-size:18px;font-weight:800;margin-top:4px;letter-spacing:-0.5px;}
+#splash-title span{color:var(--green);}
+#splash-bar{width:48px;height:3px;background:var(--border);border-radius:2px;margin-top:20px;overflow:hidden;}
+#splash-bar::after{content:'';display:block;height:100%;width:40%;background:var(--green);border-radius:2px;animation:splashAnim 0.9s ease-in-out infinite;}
+@keyframes splashAnim{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+
 .header{background:var(--bg);border-bottom:1px solid var(--border);padding:13px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
 .logo{font-size:17px;font-weight:800;letter-spacing:-0.5px;}.logo span{color:var(--green);}
 .conn-badge{font-family:'Space Mono',monospace;font-size:11px;background:transparent;border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:20px;cursor:pointer;}
@@ -182,10 +183,9 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 <body>
 
 <div id="splash">
-  <div class="splash-logo"><span style="font-size:56px;font-weight:300;letter-spacing:-3px">∞</span></div>
-  <div class="splash-logo">SIN <span>LÍMITES</span></div>
-  <div class="splash-sub">Cargando...</div>
-  <div class="splash-loader"></div>
+  <div id="splash-inf">∞</div>
+  <div id="splash-title">SIN <span>LÍMITES</span></div>
+  <div id="splash-bar"></div>
 </div>
 
 <div class="header">
@@ -1369,8 +1369,7 @@ async function pasteLink() {
     }
     const el = document.getElementById("multiUrlInput");
     const current = el.value.trim();
-    el.value = current ? current + "
-" + text.trim() : text.trim();
+    el.value = current ? current + "\n" + text.trim() : text.trim();
     toast("Link pegado ✓");
   } catch(e) {
     toast("No se pudo acceder al portapapeles", "error");
@@ -1597,16 +1596,11 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-// Hide splash screen after load
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    const splash = document.getElementById('splash');
-    if (splash) {
-      splash.classList.add('hidden');
-      setTimeout(() => splash.remove(), 400);
-    }
-  }, 800);
-});
+// Hide splash — always hide after 1s regardless
+setTimeout(() => {
+  const s = document.getElementById('splash');
+  if (s) { s.classList.add('hidden'); setTimeout(() => { if(s.parentNode) s.parentNode.removeChild(s); }, 500); }
+}, 1000);
 
 // Swipe gestures between tabs
 const tabNames = ["carrera","saldos","cuentas","ips","historial","config"];
