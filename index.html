@@ -940,6 +940,14 @@ function getVenueFromName(name) {
   return parts[0] || name;
 }
 
+// Track which venues are expanded
+let expandedVenues = {};
+
+function toggleVenue(venue) {
+  expandedVenues[venue] = !expandedVenues[venue];
+  renderRaceQueue();
+}
+
 function renderRaceQueue() {
   const queueEl = document.getElementById("raceQueue");
   const itemsEl = document.getElementById("raceQueueItems");
@@ -963,45 +971,66 @@ function renderRaceQueue() {
   // Sort races within each venue by fi
   Object.values(venues).forEach(v => v.sort((a, b) => parseInt(a.fi) - parseInt(b.fi)));
 
+  // Auto-expand venues that have the active race
+  Object.entries(venues).forEach(([venue, venueRaces]) => {
+    if (venueRaces.some(r => r.fi === activeRaceFi)) {
+      expandedVenues[venue] = true;
+    }
+    // Auto-expand if only 1 venue
+    if (Object.keys(venues).length === 1) {
+      expandedVenues[venue] = true;
+    }
+  });
+
   let html = '';
   Object.entries(venues).forEach(([venue, venueRaces]) => {
-    html += `<div style="margin-bottom:12px">
-      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;padding:0 2px">
-        🏟 ${venue}
-      </div>`;
+    const isExpanded = expandedVenues[venue] !== false;
+    const hasActive  = venueRaces.some(r => r.fi === activeRaceFi);
+    const totalCount = venueRaces.reduce((s, r) => s + (r.runners ? r.runners.length : 0), 0);
 
-    venueRaces.forEach(race => {
-      const isActive = race.fi === activeRaceFi;
-      const hasOdds  = race.runners && race.runners.some(r => r.odd && r.odd !== 'SP');
-      const ts       = new Date(race.ts + 'Z').toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'});
-      const count    = race.runners ? race.runners.length : 0;
-
-      // Race label (number or time)
-      const raceLabel = race.name.includes(' — ') ? race.name.split(' — ').slice(1).join(' — ') : race.name;
-
-      const nameParts = race.name ? race.name.split(" — ") : [];
-      const venue     = nameParts[0] || race.name;
-      const raceNum   = nameParts[1] || "";
-
-      html += `
-        <div class="race-queue-item ${isActive ? 'active' : ''}" onclick="selectRaceFromQueue('${race.fi}')">
-          <div class="rq-header">
-            <div style="flex:1;min-width:0">
-              <div class="rq-name">🏟 ${venue}</div>
-              ${raceNum ? `<div style="font-size:10px;color:var(--muted);margin-top:1px">${raceNum}</div>` : ''}
-            </div>
-            <div class="rq-actions">
-              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();updateRaceOdds('${race.fi}')" title="Actualizar">🔄</button>
-              <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeRace('${race.fi}')">✕</button>
+    html += `
+      <div style="margin-bottom:8px;background:var(--surface);border:1px solid ${hasActive ? 'var(--green)' : 'var(--border)'};border-radius:12px;overflow:hidden">
+        <div onclick="toggleVenue('${venue.replace(/'/g, "\'")}')" style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:14px">🏟</span>
+            <div>
+              <div style="font-size:13px;font-weight:700">${venue}</div>
+              <div style="font-size:10px;color:var(--muted)">${venueRaces.length} carrera${venueRaces.length>1?'s':''} · ${totalCount} caballos</div>
             </div>
           </div>
-          <div class="rq-meta">
-            ${count} caballos · ${ts}
-            ${!hasOdds ? ' · <span style="color:var(--yellow)">SP</span>' : ''}
-            ${isActive ? ' · <span style="color:var(--green)">●</span>' : ''}
-          </div>
+          <span style="font-size:12px;color:var(--muted);transition:transform 0.2s;display:inline-block;transform:rotate(${isExpanded?'180':'0'}deg)">▼</span>
         </div>`;
-    });
+
+    if (isExpanded) {
+      venueRaces.forEach(race => {
+        const isActive = race.fi === activeRaceFi;
+        const hasOdds  = race.runners && race.runners.some(r => r.odd && r.odd !== 'SP');
+        const ts       = new Date(race.ts + 'Z').toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'});
+        const count    = race.runners ? race.runners.length : 0;
+        const nameParts = race.name ? race.name.split(" — ") : [];
+        const raceNum   = nameParts[1] || race.name;
+
+        html += `
+          <div class="race-queue-item ${isActive ? 'active' : ''}" 
+               onclick="selectRaceFromQueue('${race.fi}')"
+               style="border-radius:0;border:none;border-top:1px solid var(--border);margin-bottom:0">
+            <div class="rq-header">
+              <div style="flex:1;min-width:0">
+                <div class="rq-name">${raceNum}</div>
+              </div>
+              <div class="rq-actions">
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();updateRaceOdds('${race.fi}')" title="Actualizar">🔄</button>
+                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeRace('${race.fi}')">✕</button>
+              </div>
+            </div>
+            <div class="rq-meta">
+              ${count} caballos · ${ts}
+              ${!hasOdds ? ' · <span style="color:var(--yellow)">SP</span>' : ''}
+              ${isActive ? ' · <span style="color:var(--green)">●</span>' : ''}
+            </div>
+          </div>`;
+      });
+    }
 
     html += '</div>';
   });
@@ -1013,6 +1042,18 @@ function renderRaceQueue() {
 function selectRaceFromQueue(fi) {
   const race = raceQueue[fi];
   if (!race) return;
+
+  // Toggle — if already active, close it
+  if (activeRaceFi === fi) {
+    activeRaceFi = null;
+    renderRaceQueue();
+    document.getElementById("runnersList").style.display = "none";
+    document.getElementById("betConfig").style.display   = "none";
+    raceData.selected = null;
+    updateFireBtn();
+    return;
+  }
+
   activeRaceFi = fi;
   renderRaceQueue();
 
