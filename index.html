@@ -16,14 +16,21 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f0f0f;--surface:#1a1a1a;--card:#242424;--border:#333333;--green:#22c55e;--green-dim:#16a34a;--red:#ef4444;--orange:#f97316;--yellow:#eab308;--blue:#3b82f6;--text:#f5f5f5;--muted:#777777;}}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;}
+#splash{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.4s;}
+#splash.hidden{opacity:0;pointer-events:none;}
+#splash .splash-logo{font-size:48px;font-weight:800;letter-spacing:-2px;margin-bottom:8px;}
+#splash .splash-logo span{color:var(--green);}
+#splash .splash-sub{font-size:13px;color:var(--muted);}
+#splash .splash-loader{width:40px;height:3px;background:var(--border);border-radius:2px;margin-top:24px;overflow:hidden;}
+#splash .splash-loader::after{content:'';display:block;width:40%;height:100%;background:var(--green);border-radius:2px;animation:splashLoad 1s ease-in-out infinite;}
+@keyframes splashLoad{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 .header{background:var(--bg);border-bottom:1px solid var(--border);padding:13px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
 .logo{font-size:17px;font-weight:800;letter-spacing:-0.5px;}.logo span{color:var(--green);}
 .conn-badge{font-family:'Space Mono',monospace;font-size:11px;background:transparent;border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:20px;cursor:pointer;}
 .tabs{display:flex;background:var(--bg);border-bottom:1px solid var(--border);overflow-x:auto;}
 .tab{flex:1;min-width:55px;padding:11px 4px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap;letter-spacing:0.2px;}
 .tab.active{color:var(--text);border-bottom-color:var(--text);}
-.content{padding:14px 14px 16px;max-width:580px;margin:0 auto;}
-.fire-visible .content{padding-bottom:80px;}
+.content{padding:14px 14px 80px;max-width:580px;margin:0 auto;}
 .panel{display:none;}.panel.active{display:block;}
 .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
 .card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:12px;}
@@ -42,8 +49,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 .btn-sm{padding:4px 10px;font-size:11px;}
 
 /* Fire Button */
-#fireZone{position:fixed;bottom:0;left:0;right:0;padding:8px 14px 12px;background:var(--bg);z-index:50;transition:transform 0.2s,opacity 0.2s;}
-#fireZone.hidden{transform:translateY(100%);opacity:0;pointer-events:none;}
+#fireZone{position:fixed;bottom:0;left:0;right:0;padding:8px 14px 12px;background:var(--bg);z-index:50;}
 #fireBtn{width:100%;padding:17px;border-radius:14px;font-family:'Syne',sans-serif;font-size:17px;font-weight:700;border:none;cursor:pointer;background:var(--text);color:var(--bg);transition:all 0.15s;letter-spacing:-0.3px;}
 #fireBtn:active{transform:scale(0.97);}
 #fireBtn.firing{background:var(--green);color:#fff;animation:firePulse 0.5s infinite alternate;}
@@ -174,6 +180,13 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 </style>
 </head>
 <body>
+
+<div id="splash">
+  <div class="splash-logo"><span style="font-size:56px;font-weight:300;letter-spacing:-3px">∞</span></div>
+  <div class="splash-logo">SIN <span>LÍMITES</span></div>
+  <div class="splash-sub">Cargando...</div>
+  <div class="splash-loader"></div>
+</div>
 
 <div class="header">
   <div class="logo"><span style="font-size:22px;font-weight:300;vertical-align:middle;margin-right:4px;letter-spacing:-1px">∞</span><span>SIN LÍMITES</span></div>
@@ -441,8 +454,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   </div>
 </div>
 
-<div id="fireZone" class="hidden">
-  <button id="fireBtn" class="empty" onclick="placeBet()">Selecciona un caballo</button>
+<div id="fireZone">
+  <button id="fireBtn" class="empty" onclick="placeBet()">🚫 Selecciona un caballo</button>
 </div>
 <div id="toast"></div>
 
@@ -562,27 +575,19 @@ function selectRunner(id) {
 }
 
 function updateFireBtn() {
-  const btn  = document.getElementById("fireBtn");
-  const zone = document.getElementById("fireZone");
-  const body = document.body;
+  const btn = document.getElementById("fireBtn");
   if (isFiring) {
     btn.className = "firing";
     btn.innerHTML = '<span class="spinner"></span> VERIFICANDO Y APOSTANDO...';
-    zone.classList.remove("hidden");
-    body.classList.add("fire-visible");
   } else if (!raceData.selected) {
     btn.className = "empty";
-    btn.textContent = "Selecciona un caballo";
-    zone.classList.add("hidden");
-    body.classList.remove("fire-visible");
+    btn.textContent = "🚫 Selecciona un caballo";
   } else {
     const connected = accounts.filter(a=>a.status==="connected").length;
     btn.className = connected ? "" : "empty";
     btn.textContent = connected
-      ? `APOSTAR ${raceData.selected.name.toUpperCase()} EN ${connected} CUENTA${connected>1?"S":""}`
-      : "Conecta las cuentas primero";
-    zone.classList.remove("hidden");
-    body.classList.add("fire-visible");
+      ? `🚀 APOSTAR ${raceData.selected.name.toUpperCase()} EN ${connected} CUENTA${connected>1?"S":""}`
+      : "⚡ Conecta las cuentas primero";
   }
 }
 
@@ -651,6 +656,7 @@ async function placeBet() {
         </div>`;
 
       toast(`${ok}/${data.results.length} apuestas realizadas`, ok===data.results.length?"success":"info");
+      sendNotification('✓ Apuesta realizada', `${raceData.selected.name} — ${ok}/${data.results.length} cuentas`);
 
       // Save to history
       betHistory.unshift({
@@ -1526,6 +1532,48 @@ setInterval(keepaliveAll, 9*60*1000);
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
+
+// Hide splash screen after load
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    const splash = document.getElementById('splash');
+    if (splash) {
+      splash.classList.add('hidden');
+      setTimeout(() => splash.remove(), 400);
+    }
+  }, 800);
+});
+
+// Swipe gestures between tabs
+const tabNames = ["carrera","saldos","cuentas","ips","historial","config"];
+let touchStartX = 0;
+let touchStartY = 0;
+document.addEventListener('touchstart', e => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}, {passive: true});
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 2) {
+    const current = tabNames.findIndex(n => document.getElementById('tab-'+n)?.classList.contains('active'));
+    if (dx < 0 && current < tabNames.length - 1) switchTab(tabNames[current + 1]);
+    if (dx > 0 && current > 0) switchTab(tabNames[current - 1]);
+  }
+}, {passive: true});
+
+// Notification when bet is placed
+async function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+}
+function sendNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, {body, icon: '/manifest.json'});
+  }
+}
+requestNotificationPermission();
 </script>
 </body>
 </html>
