@@ -80,7 +80,6 @@ def init_db():
 def load_accounts():
     try:
         rows = db_exec("SELECT data FROM accounts")
-        print(f"DEBUG load_accounts: got {len(rows)} rows")
         accounts = [json.loads(row["data"]) for row in rows]
         return sorted(accounts, key=lambda a: a.get("id", 0))
     except Exception as e:
@@ -406,10 +405,11 @@ def login_one(account_id):
 
     for a in accounts:
         if a["id"] == account_id:
-            a["session_id"] = result.get("session_id")
-            a["status"]     = "connected" if result["success"] else "error"
-            a["current_ip"] = result.get("ip")
-            a["ip_log"]     = result.get("ip_log", [])
+            a["session_id"]    = result.get("session_id")
+            a["status"]        = "connected" if result["success"] else "error"
+            a["current_ip"]    = result.get("ip")
+            a["ip_log"]        = result.get("ip_log", [])
+            a["last_activity"] = datetime.utcnow().isoformat()
     save_accounts(accounts)
     return jsonify(result)
 
@@ -799,6 +799,13 @@ def place_bet_all():
     if not active:
         return jsonify({"error": "No hay cuentas conectadas"}), 400
 
+    # Update last activity timestamp
+    now = datetime.utcnow().isoformat()
+    for a in accounts:
+        if a.get("status") == "connected":
+            a["last_activity"] = now
+    save_accounts(accounts)
+
     # No odd protection — always fire regardless of odd change
     odd_check = {"checked": False, "blocked": False, "reason": ""}
 
@@ -861,6 +868,9 @@ def place_bet_all():
             {executor.submit(bet_one, acc): acc for acc in active}
         ):
             results.append(future.result())
+
+    # Update last bet timestamp
+    app.config["LAST_BET_TS"] = datetime.utcnow()
 
     return jsonify({"results": results, "pd": pd, "odd_check": odd_check, "blocked": False})
 
@@ -1372,6 +1382,30 @@ def index():
 # ── Midnight auto-distribution ────────────────────────────────────────────────
 import threading
 
+def auto_logout_loop():
+    """Auto logout all accounts if no bet placed in 30 minutes."""
+    while True:
+        time.sleep(60)  # Check every minute
+        try:
+            last_bet = app.config.get("LAST_BET_TS")
+            if last_bet is None:
+                continue
+            minutes_idle = (datetime.utcnow() - last_bet).total_seconds() / 60
+            if minutes_idle >= 30:
+                accounts = load_accounts()
+                active = [a for a in accounts if a.get("status") == "connected" and a.get("session_id")]
+                if active:
+                    print(f"Auto-logout: {len(active)} cuentas inactivas por {int(minutes_idle)} min")
+                    for a in active:
+                        qrsolver_request("POST", f"/api/placebet/session/{a['session_id']}/logout/", a["api_key"])
+                        qrsolver_request("DELETE", f"/api/placebet/session/{a['session_id']}/", a["api_key"])
+                        a["session_id"] = None
+                        a["status"]     = "disconnected"
+                    save_accounts(accounts)
+                    app.config["LAST_BET_TS"] = None
+        except Exception as e:
+            print(f"Auto-logout error: {e}")
+
 def midnight_distribution():
     while True:
         now           = datetime.utcnow()
@@ -1387,6 +1421,10 @@ def midnight_distribution():
 
 t_midnight = threading.Thread(target=midnight_distribution, daemon=True)
 t_midnight.start()
+t_logout = threading.Thread(target=auto_logout_inactive, daemon=True)
+t_logout.start()
+t_autologout = threading.Thread(target=auto_logout_loop, daemon=True)
+t_autologout.start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
