@@ -856,7 +856,7 @@ def place_bet_all():
         }
 
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         for future in concurrent.futures.as_completed(
             {executor.submit(bet_one, acc): acc for acc in active}
         ):
@@ -890,7 +890,7 @@ def get_all_balances():
         }
 
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         for future in concurrent.futures.as_completed(
             {executor.submit(fetch_one, acc): acc for acc in active}
         ):
