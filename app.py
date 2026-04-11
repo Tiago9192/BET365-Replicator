@@ -95,7 +95,7 @@ def save_accounts(accounts):
         try:
             conn.run("DELETE FROM accounts")
             for a in accounts:
-                conn.run("INSERT INTO accounts (data) VALUES (%s)", json.dumps(a))
+                conn.run("INSERT INTO accounts (data) VALUES (:data)", data=json.dumps(a))
             print(f"DEBUG save_accounts: saved {len(accounts)} accounts")
         finally:
             conn.close()
@@ -119,8 +119,7 @@ def save_ip_history(history):
         try:
             conn.run("DELETE FROM ip_history")
             for ip, data in history.items():
-                conn.run("INSERT INTO ip_history (ip, data) VALUES (%s, %s)",
-                         ip, json.dumps(data))
+                conn.run("INSERT INTO ip_history (ip, data) VALUES (:ip, :data)", ip=ip, data=json.dumps(data))
         finally:
             conn.close()
     except Exception as e:
@@ -1126,9 +1125,9 @@ def save_settings(settings):
         try:
             for key, value in settings.items():
                 conn.run("""
-                    INSERT INTO settings (key, value) VALUES (%s, %s)
+                    INSERT INTO settings (key, value) VALUES (:key, :value)
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                """, key, json.dumps(value))
+                """, key=key, value=json.dumps(value))
         finally:
             conn.close()
     except Exception as e:
