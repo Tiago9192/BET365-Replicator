@@ -1102,6 +1102,44 @@ def race_clear():
     app.config["RACE_QUEUE"] = {}
     return jsonify({"success": True})
 
+@app.route("/api/race/add-link", methods=["POST", "GET"])
+def add_link():
+    """Receive a single race link from iOS Shortcut or bookmarklet."""
+    if request.method == "GET":
+        url = request.args.get("url", "")
+    else:
+        data = request.json or {}
+        url  = data.get("url", "")
+
+    if not url or "bet365" not in url:
+        return jsonify({"error": "URL de Bet365 requerida"}), 400
+
+    import re
+    fm = re.search(r'/F(\d+)/', url)
+    fi = str(fm.group(1)) if fm else "0"
+
+    date_match = re.search(r'D(\d{8})', url)
+    race_date  = date_match.group(1) if date_match else ""
+    if race_date:
+        race_date = race_date[6:8] + "/" + race_date[4:6] + "/" + race_date[0:4]
+
+    queue = app.config.get("RACE_QUEUE", {})
+    if fi not in queue:
+        queue[fi] = {
+            "fi":       fi,
+            "url":      url,
+            "sport_id": 73,
+            "runners":  [],
+            "date":     race_date,
+            "name":     f"Carrera {race_date}" if race_date else f"Carrera F{fi}",
+            "ts":       datetime.utcnow().isoformat(),
+            "selected": None
+        }
+        app.config["RACE_QUEUE"] = queue
+        return jsonify({"success": True, "fi": fi, "total": len(queue), "action": "added"})
+    else:
+        return jsonify({"success": True, "fi": fi, "total": len(queue), "action": "already_exists"})
+
 
 
 
