@@ -231,9 +231,10 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
       <textarea class="form-input" id="multiUrlInput" rows="4"
         placeholder="https://www.bet365.com/#/AC/B73/...&#10;https://www.bet365.com/#/AC/B73/..."
         style="resize:vertical;min-height:80px;font-size:11px"></textarea>
-      <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="loadMultiple()">
-        🏇 Cargar todas las carreras
-      </button>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn btn-ghost" style="flex:0 0 auto" onclick="pasteLink()">📋 Pegar</button>
+        <button class="btn btn-primary" style="flex:1" onclick="loadMultiple()">🏇 Cargar todas</button>
+      </div>
     </div>
 
     <div id="loadStatus" style="font-size:11px;color:var(--muted)">
@@ -1279,11 +1280,16 @@ async function loadMultiple() {
 
   document.getElementById("loadStatus").textContent = `Cargando ${urls.length} carreras...`;
 
+  // Load in parallel - max 3 at a time to avoid overwhelming QRSolver
   let loaded = 0;
   let errors = 0;
-  for (const url of urls) {
-    const ok = await loadRaceByUrl(url, false);
-    if (ok) loaded++; else errors++;
+  const chunkSize = 3;
+
+  for (let i = 0; i < urls.length; i += chunkSize) {
+    const chunk = urls.slice(i, i + chunkSize);
+    document.getElementById("loadStatus").textContent = `Cargando ${Math.min(i+chunkSize, urls.length)}/${urls.length}...`;
+    const results = await Promise.all(chunk.map(url => loadRaceByUrl(url, false)));
+    results.forEach(ok => ok ? loaded++ : errors++);
   }
 
   document.getElementById("multiUrlInput").value = "";
@@ -1351,6 +1357,23 @@ async function loadRaceByUrl(url, showToast = true) {
     document.getElementById("loadStatus").textContent = "Error de conexión";
     if (showToast) toast("Error de conexión", "error");
     return false;
+  }
+}
+
+async function pasteLink() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text || !text.includes("bet365")) {
+      toast("No hay link de Bet365 en el portapapeles", "warn");
+      return;
+    }
+    const el = document.getElementById("multiUrlInput");
+    const current = el.value.trim();
+    el.value = current ? current + "
+" + text.trim() : text.trim();
+    toast("Link pegado ✓");
+  } catch(e) {
+    toast("No se pudo acceder al portapapeles", "error");
   }
 }
 
