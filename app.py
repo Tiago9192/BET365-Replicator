@@ -24,7 +24,8 @@ import pg8000.native
 from urllib.parse import urlparse as _pg_urlparse
 
 def get_db():
-    db_url = os.environ.get("DATABASE_URL", "")
+    # Try DATABASE_PUBLIC_URL first (external), then DATABASE_URL (internal)
+    db_url = os.environ.get("DATABASE_PUBLIC_URL", "") or os.environ.get("DATABASE_URL", "")
     if not db_url:
         raise Exception("DATABASE_URL not configured")
     p = _pg_urlparse(db_url)
