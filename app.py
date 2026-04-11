@@ -1104,15 +1104,32 @@ def race_clear():
 
 @app.route("/api/race/add-link", methods=["POST", "GET"])
 def add_link():
-    """Receive a single race link from iOS Shortcut or bookmarklet."""
+    """Receive a single race link from iOS Shortcut."""
+    url = ""
+
     if request.method == "GET":
-        url = request.args.get("url", "")
+        # Try different param names iOS might send
+        url = request.args.get("url", "") or request.args.get("URL", "") or request.args.get("link", "")
     else:
-        data = request.json or {}
-        url  = data.get("url", "")
+        # POST - try JSON body and form data
+        try:
+            data = request.json or {}
+            url  = data.get("url", "") or data.get("URL", "") or data.get("link", "")
+        except:
+            pass
+        if not url:
+            url = request.form.get("url", "") or request.form.get("URL", "")
+        if not url:
+            # Try raw body
+            raw = request.get_data(as_text=True)
+            if raw and "bet365" in raw:
+                url = raw.strip()
+
+    # Clean URL - iOS sometimes adds extra chars
+    url = url.strip().strip('"').strip("'")
 
     if not url or "bet365" not in url:
-        return jsonify({"error": "URL de Bet365 requerida"}), 400
+        return jsonify({"error": "URL de Bet365 requerida", "received": url[:100] if url else "empty"}), 400
 
     import re
     fm = re.search(r'/F(\d+)/', url)
