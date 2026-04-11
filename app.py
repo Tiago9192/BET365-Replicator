@@ -1243,6 +1243,23 @@ def serve_extract_js():
                     headers={"Access-Control-Allow-Origin": "*",
                              "Cache-Control": "no-cache"})
 
+@app.route("/manifest.json")
+def manifest():
+    from flask import Response
+    if os.path.exists("manifest.json"):
+        with open("manifest.json") as f:
+            return Response(f.read(), mimetype="application/json")
+    return "{}", 404
+
+@app.route("/sw.js")
+def service_worker():
+    from flask import Response
+    if os.path.exists("sw.js"):
+        with open("sw.js") as f:
+            return Response(f.read(), mimetype="application/javascript",
+                          headers={"Cache-Control": "no-cache"})
+    return "", 404
+
 @app.route("/")
 def index():
     if os.path.exists("index.html"):

@@ -3,11 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SIN LÍMITES</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>bet365 replica</title>
+<meta name="theme-color" id="themeColor" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="bet365 replica">
+<link rel="manifest" href="/manifest.json">
 <style>
 :root{--bg:#ffffff;--surface:#f8f8f8;--card:#ffffff;--border:#e5e5e5;--green:#16a34a;--green-dim:#15803d;--red:#dc2626;--orange:#ea580c;--yellow:#ca8a04;--blue:#2563eb;--text:#111111;--muted:#888888;}
-@media(prefers-color-scheme:dark){:root{--bg:#0f0f0f;--surface:#1a1a1a;--card:#242424;--border:#333333;--green:#22c55e;--green-dim:#16a34a;--red:#ef4444;--orange:#f97316;--yellow:#eab308;--blue:#3b82f6;--text:#f5f5f5;--muted:#777777;}}
+[data-theme="dark"]{--bg:#0f0f0f;--surface:#1a1a1a;--card:#242424;--border:#333333;--green:#22c55e;--green-dim:#16a34a;--red:#ef4444;--orange:#f97316;--yellow:#eab308;--blue:#3b82f6;--text:#f5f5f5;--muted:#777777;}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f0f0f;--surface:#1a1a1a;--card:#242424;--border:#333333;--green:#22c55e;--green-dim:#16a34a;--red:#ef4444;--orange:#f97316;--yellow:#eab308;--blue:#3b82f6;--text:#f5f5f5;--muted:#777777;}}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;}
 .header{background:var(--bg);border-bottom:1px solid var(--border);padding:13px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
@@ -448,8 +454,14 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", names[i]===name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
-  if (name==="carrera")   loadRaceQueue();
+  if (name==="carrera")   initTheme();
+loadRaceQueue();
 loadBankStatus();
+
+// Register PWA service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
   if (name==="saldos")    loadBalances();
   if (name==="ips")       loadIPHistory();
   if (name==="historial") renderBetHistory();
@@ -949,10 +961,17 @@ function renderRaceQueue() {
       // Race label (number or time)
       const raceLabel = race.name.includes(' — ') ? race.name.split(' — ').slice(1).join(' — ') : race.name;
 
+      const nameParts = race.name ? race.name.split(" — ") : [];
+      const venue     = nameParts[0] || race.name;
+      const raceNum   = nameParts[1] || "";
+
       html += `
         <div class="race-queue-item ${isActive ? 'active' : ''}" onclick="selectRaceFromQueue('${race.fi}')">
           <div class="rq-header">
-            <div class="rq-name">${raceLabel || race.name}</div>
+            <div style="flex:1;min-width:0">
+              <div class="rq-name">🏟 ${venue}</div>
+              ${raceNum ? `<div style="font-size:10px;color:var(--muted);margin-top:1px">${raceNum}</div>` : ''}
+            </div>
             <div class="rq-actions">
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();updateRaceOdds('${race.fi}')" title="Actualizar">🔄</button>
               <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeRace('${race.fi}')">✕</button>
@@ -1029,7 +1048,8 @@ function selectRaceFromQueue(fi) {
             odd: r.odd_raw, odd_raw: r.odd_raw, odd_dec: r.odd_dec
           }));
         }
-        document.getElementById("raceTitle").textContent = `🏇 ${data.runners.length} CABALLOS — ${race.name}`;
+        const _np = (data.race_name || race.name || "").split(" — ");
+  document.getElementById("raceTitle").innerHTML = `<div style="font-size:13px;font-weight:700">🏟 ${_np[0]||"Hipódromo"}</div><div style="font-size:11px;color:var(--muted);font-weight:400">${_np[1]||""} · ${data.runners.length} caballos</div>`;
         renderRunners(raceData.runners);
         updateFireBtn();
         toast(`${data.runners.length} caballos con IDs reales cargados ✓`);
@@ -1447,6 +1467,33 @@ function updateStakePreview() {
     return `${a.name}: $${amount}`;
   });
   el.innerHTML = lines.join(" &nbsp;·&nbsp; ");
+}
+
+// ── Theme ────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const root = document.documentElement;
+  const btn  = document.getElementById("themeToggle");
+  const current = root.getAttribute("data-theme");
+  if (current === "dark") {
+    root.setAttribute("data-theme", "light");
+    btn.textContent = "🌙";
+    localStorage.setItem("theme", "light");
+    document.getElementById("themeColor")?.setAttribute("content", "#ffffff");
+  } else {
+    root.setAttribute("data-theme", "dark");
+    btn.textContent = "☀️";
+    localStorage.setItem("theme", "dark");
+    document.getElementById("themeColor")?.setAttribute("content", "#0f0f0f");
+  }
+}
+
+function initTheme() {
+  const saved = localStorage.getItem("theme");
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = saved || (prefersDark ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
