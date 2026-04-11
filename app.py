@@ -1421,8 +1421,6 @@ def midnight_distribution():
 
 t_midnight = threading.Thread(target=midnight_distribution, daemon=True)
 t_midnight.start()
-t_logout = threading.Thread(target=auto_logout_inactive, daemon=True)
-t_logout.start()
 t_autologout = threading.Thread(target=auto_logout_loop, daemon=True)
 t_autologout.start()
 
