@@ -1315,6 +1315,30 @@ def service_worker():
                           headers={"Cache-Control": "no-cache"})
     return "", 404
 
+@app.route("/add")
+def add_redirect():
+    """iOS Shortcut opens this URL with the race link. Saves to queue and redirects to app."""
+    import re
+    url = request.args.get("url", "").strip()
+    if url and "bet365" in url:
+        fm = re.search(r'/F(\d+)/', url)
+        fi = str(fm.group(1)) if fm else "0"
+        date_match = re.search(r'D(\d{8})', url)
+        race_date  = date_match.group(1) if date_match else ""
+        if race_date:
+            race_date = race_date[6:8] + "/" + race_date[4:6] + "/" + race_date[0:4]
+        queue = app.config.get("RACE_QUEUE", {})
+        if fi not in queue:
+            queue[fi] = {
+                "fi": fi, "url": url, "sport_id": 73,
+                "runners": [], "date": race_date,
+                "name": f"Carrera {race_date}" if race_date else f"Carrera F{fi}",
+                "ts": datetime.utcnow().isoformat(), "selected": None
+            }
+            app.config["RACE_QUEUE"] = queue
+    from flask import redirect
+    return redirect("/")
+
 @app.route("/")
 def index():
     if os.path.exists("index.html"):
