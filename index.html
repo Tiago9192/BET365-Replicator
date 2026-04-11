@@ -22,7 +22,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 .tabs{display:flex;background:var(--bg);border-bottom:1px solid var(--border);overflow-x:auto;}
 .tab{flex:1;min-width:55px;padding:11px 4px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap;letter-spacing:0.2px;}
 .tab.active{color:var(--text);border-bottom-color:var(--text);}
-.content{padding:14px 14px 80px;max-width:580px;margin:0 auto;}
+.content{padding:14px 14px 16px;max-width:580px;margin:0 auto;}
+.fire-visible .content{padding-bottom:80px;}
 .panel{display:none;}.panel.active{display:block;}
 .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
 .card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:12px;}
@@ -41,7 +42,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 .btn-sm{padding:4px 10px;font-size:11px;}
 
 /* Fire Button */
-#fireZone{position:fixed;bottom:0;left:0;right:0;padding:8px 14px 12px;background:var(--bg);z-index:50;}
+#fireZone{position:fixed;bottom:0;left:0;right:0;padding:8px 14px 12px;background:var(--bg);z-index:50;transition:transform 0.2s,opacity 0.2s;}
+#fireZone.hidden{transform:translateY(100%);opacity:0;pointer-events:none;}
 #fireBtn{width:100%;padding:17px;border-radius:14px;font-family:'Syne',sans-serif;font-size:17px;font-weight:700;border:none;cursor:pointer;background:var(--text);color:var(--bg);transition:all 0.15s;letter-spacing:-0.3px;}
 #fireBtn:active{transform:scale(0.97);}
 #fireBtn.firing{background:var(--green);color:#fff;animation:firePulse 0.5s infinite alternate;}
@@ -179,6 +181,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 </div>
 
 <div class="tabs">
+  <button class="tab active" onclick="switchTab('carrera')">🏇 Carrera</button>
   <button class="tab" onclick="switchTab('saldos')">💰 Saldos</button>
   <button class="tab" onclick="switchTab('cuentas')">👤 Cuentas</button>
   <button class="tab" onclick="switchTab('ips')">🌐 IPs</button>
@@ -438,8 +441,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   </div>
 </div>
 
-<div id="fireZone">
-  <button id="fireBtn" class="empty" onclick="placeBet()">🚫 Selecciona un caballo</button>
+<div id="fireZone" class="hidden">
+  <button id="fireBtn" class="empty" onclick="placeBet()">Selecciona un caballo</button>
 </div>
 <div id="toast"></div>
 
@@ -559,19 +562,27 @@ function selectRunner(id) {
 }
 
 function updateFireBtn() {
-  const btn = document.getElementById("fireBtn");
+  const btn  = document.getElementById("fireBtn");
+  const zone = document.getElementById("fireZone");
+  const body = document.body;
   if (isFiring) {
     btn.className = "firing";
     btn.innerHTML = '<span class="spinner"></span> VERIFICANDO Y APOSTANDO...';
+    zone.classList.remove("hidden");
+    body.classList.add("fire-visible");
   } else if (!raceData.selected) {
     btn.className = "empty";
-    btn.textContent = "🚫 Selecciona un caballo";
+    btn.textContent = "Selecciona un caballo";
+    zone.classList.add("hidden");
+    body.classList.remove("fire-visible");
   } else {
     const connected = accounts.filter(a=>a.status==="connected").length;
     btn.className = connected ? "" : "empty";
     btn.textContent = connected
-      ? `🚀 APOSTAR ${raceData.selected.name.toUpperCase()} EN ${connected} CUENTA${connected>1?"S":""}`
-      : "⚡ Conecta las cuentas primero";
+      ? `APOSTAR ${raceData.selected.name.toUpperCase()} EN ${connected} CUENTA${connected>1?"S":""}`
+      : "Conecta las cuentas primero";
+    zone.classList.remove("hidden");
+    body.classList.add("fire-visible");
   }
 }
 
