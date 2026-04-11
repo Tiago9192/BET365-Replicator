@@ -95,7 +95,7 @@ def save_accounts(accounts):
         try:
             conn.run("DELETE FROM accounts")
             for a in accounts:
-                conn.run("INSERT INTO accounts (data) VALUES (:1)", json.dumps(a))
+                conn.run("INSERT INTO accounts (data) VALUES (%s)", json.dumps(a))
             print(f"DEBUG save_accounts: saved {len(accounts)} accounts")
         finally:
             conn.close()
@@ -119,7 +119,7 @@ def save_ip_history(history):
         try:
             conn.run("DELETE FROM ip_history")
             for ip, data in history.items():
-                conn.run("INSERT INTO ip_history (ip, data) VALUES (:1, :2)",
+                conn.run("INSERT INTO ip_history (ip, data) VALUES (%s, %s)",
                          ip, json.dumps(data))
         finally:
             conn.close()
@@ -1126,7 +1126,7 @@ def save_settings(settings):
         try:
             for key, value in settings.items():
                 conn.run("""
-                    INSERT INTO settings (key, value) VALUES (:1, :2)
+                    INSERT INTO settings (key, value) VALUES (%s, %s)
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
                 """, key, json.dumps(value))
         finally:
