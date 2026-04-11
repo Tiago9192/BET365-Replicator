@@ -174,7 +174,6 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 <body>
 
 <div class="header">
-<div class="header">
   <div class="logo">bet<span>365</span> replica</div>
   <div style="display:flex;align-items:center;gap:8px">
     <button onclick="toggleTheme()" id="themeToggle" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 10px;cursor:pointer;font-size:13px;color:var(--text)">🌙</button>
@@ -457,14 +456,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", names[i]===name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
-  if (name==="carrera")   initTheme();
-loadRaceQueue();
-loadBankStatus();
-
-// Register PWA service worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
+  if (name==="carrera")   loadRaceQueue();
   if (name==="saldos")    loadBalances();
   if (name==="ips")       loadIPHistory();
   if (name==="historial") renderBetHistory();
@@ -1506,9 +1498,17 @@ function initTheme() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
-setInterval(keepaliveAll, 9*60*1000);
+initTheme();
+loadRaceQueue();
+loadBankStatus();
 loadAccounts();
 setInterval(loadAccounts, 30000);
+setInterval(keepaliveAll, 9*60*1000);
+
+// Register PWA service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
