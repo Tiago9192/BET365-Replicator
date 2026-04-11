@@ -1328,12 +1328,16 @@ def add_redirect():
     # Extract the bet365 URL from query string
     url = request.args.get("url", "").strip()
     
-    # Also check if bet365 URL is in the fragment (after #)
+    # Also check raw query string - iOS may encode differently
     if not url or "bet365" not in url:
-        # Try to get it from raw query string
+        from urllib.parse import unquote, parse_qs
         raw_qs = request.query_string.decode("utf-8")
+        print(f"DEBUG raw_qs: '{raw_qs[:200]}'")
         if "bet365" in raw_qs:
-            url = raw_qs.replace("url=", "", 1)
+            # Extract URL after url=
+            idx = raw_qs.find("url=")
+            if idx >= 0:
+                url = unquote(raw_qs[idx+4:])
     
     print(f"DEBUG /add received url: '{url[:100] if url else 'empty'}'")
     print(f"DEBUG full request URL: '{full_url[:200]}'")
