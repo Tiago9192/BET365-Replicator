@@ -369,6 +369,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
     <div class="section-title">Historial de apuestas</div>
     <button class="btn btn-danger btn-sm" onclick="clearBetHistory()">Borrar</button>
   </div>
+  <!-- Daily summary -->
+  <div id="dailySummary" style="margin-bottom:10px"></div>
   <div id="historialList"><div class="empty-state">Sin historial aún.</div></div>
 </div>
 
@@ -658,6 +660,7 @@ async function placeBet() {
 
       toast(`${ok}/${data.results.length} apuestas realizadas`, ok===data.results.length?"success":"info");
       sendNotification('✓ Apuesta realizada', `${raceData.selected.name} — ${ok}/${data.results.length} cuentas`);
+      playBetSound();
 
       // Save to history
       betHistory.unshift({
@@ -884,6 +887,28 @@ async function clearIPHistory(){if(!confirm("¿Borrar historial de IPs?"))return
 // ══════════════════════════════════════════════════════════════════
 function renderBetHistory() {
   const el = document.getElementById("historialList");
+
+  // Daily summary
+  const today = new Date().toDateString();
+  const todayBets = betHistory.filter(e => new Date(e.date).toDateString() === today);
+  const summaryEl = document.getElementById("dailySummary");
+  if (summaryEl && todayBets.length) {
+    const totalBets  = todayBets.reduce((s, e) => s + (e.results?.length || 0), 0);
+    const totalOk    = todayBets.reduce((s, e) => s + (e.results?.filter(r=>r.success).length || 0), 0);
+    const avgOdd     = todayBets.length ? (todayBets.reduce((s, e) => s + (parseFloat(e.odd) || 0), 0) / todayBets.length).toFixed(2) : 0;
+    summaryEl.innerHTML = `
+      <div class="card" style="margin-bottom:8px">
+        <div class="card-title">Resumen de hoy</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+          <div><div style="font-size:22px;font-weight:800">${todayBets.length}</div><div style="font-size:10px;color:var(--muted)">SEÑALES</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:var(--green)">${totalOk}/${totalBets}</div><div style="font-size:10px;color:var(--muted)">APUESTAS OK</div></div>
+          <div><div style="font-size:22px;font-weight:800">${avgOdd}x</div><div style="font-size:10px;color:var(--muted)">CUOTA MEDIA</div></div>
+        </div>
+      </div>`;
+  } else if (summaryEl) {
+    summaryEl.innerHTML = '';
+  }
+
   if (!betHistory.length){el.innerHTML='<div class="empty-state">Sin historial.</div>';return;}
   el.innerHTML = betHistory.map(entry=>{
     const date=new Date(entry.date).toLocaleString("es");
@@ -1425,6 +1450,23 @@ async function checkForNewRace() {
   }
 }
 
+function getRaceCountdown(race) {
+  if (!race.url) return '';
+  const m = race.url.match(/D(\d{8})/);
+  if (!m) return '';
+  // Extract time from race name or EX field if available
+  const exMatch = race.name?.match(/(\d{2}):(\d{2})/);
+  if (!exMatch) return '';
+  const now = new Date();
+  const raceTime = new Date();
+  raceTime.setHours(parseInt(exMatch[1]), parseInt(exMatch[2]), 0);
+  const diff = Math.floor((raceTime - now) / 60000);
+  if (diff <= 0) return ' · <span style="color:var(--red)">EN CURSO</span>';
+  if (diff <= 5)  return ` · <span style="color:var(--red)">⚡ ${diff}m</span>`;
+  if (diff <= 15) return ` · <span style="color:var(--yellow)">⏰ ${diff}m</span>`;
+  return ` · <span style="color:var(--muted)">${diff}m</span>`;
+}
+
 function odd_to_decimal_js(odd_str) {
   if (!odd_str) return 0;
   odd_str = odd_str.trim();
@@ -1556,6 +1598,38 @@ function updateStakePreview() {
   el.style.display = "block";
 }
 
+// ── Sound ────────────────────────────────────────────────────────────────────
+function playBetSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(523, ctx.currentTime);
+    osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+  } catch(e) {}
+}
+
+// ── Password ──────────────────────────────────────────────────────────────────
+const APP_PASSWORD = "T1.a2g3o4";
+function checkPassword() {
+  const saved = localStorage.getItem("app_auth");
+  if (saved === APP_PASSWORD) return true;
+  const input = prompt("🔒 Contraseña de acceso:");
+  if (input === APP_PASSWORD) {
+    localStorage.setItem("app_auth", APP_PASSWORD);
+    return true;
+  }
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:18px;color:#ef4444">🔒 Acceso denegado</div>';
+  return false;
+}
+
 // ── Theme ────────────────────────────────────────────────────────────────────
 function toggleTheme() {
   const root = document.documentElement;
@@ -1584,6 +1658,7 @@ function initTheme() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+if (!checkPassword()) throw new Error("Auth failed");
 initTheme();
 loadRaceQueue();
 loadBankStatus();
