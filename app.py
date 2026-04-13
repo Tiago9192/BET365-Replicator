@@ -831,19 +831,24 @@ def place_bet_all():
 
         account_stake = get_stake_for_account(account)
 
+        # Build selection — if SP omit odd to let Bet365 apply market price
+        is_sp = not odd_raw or odd_raw in ("SP", "0", "")
+        selection = {
+            "sport_id":         sport_id,
+            "fi":               fi,
+            "id":               selection_id,
+            "stake":            account_stake,
+            "accept_min_odd":   1.01,
+            "accept_max_odd":   1000.0,
+            "accept_odd_lines": []
+        }
+        if not is_sp:
+            selection["odd"] = odd_raw
+
         bet_body = {
-            "type": "singles",
-            "selections": [{
-                "sport_id":       sport_id,
-                "fi":             fi,
-                "id":             selection_id,
-                "odd":            odd_raw,
-                "stake":          account_stake,
-                "accept_min_odd": 1.01,
-                "accept_max_odd": 1000.0,
-                "accept_odd_lines": []
-            }],
-            "stake": account_stake
+            "type":       "singles",
+            "selections": [selection],
+            "stake":      account_stake
         }
         status, resp = qrsolver_request(
             "POST",
