@@ -545,13 +545,12 @@ function renderRunners(runners) {
 
   document.getElementById("runnersItems").innerHTML = runners.map((r, i) => `
     <div class="runner-card" id="runner-${r.id}" onclick="selectRunner(${r.id})">
-      <div class="runner-num">${i+1}</div>
+      <div class="runner-num">${r.prog_num || (i+1)}</div>
       <div class="runner-info">
         <div class="runner-name">${r.name}</div>
       </div>
-        <div class="runner-odd">
-          ${r.odd_dec > 0 ? r.odd_dec.toFixed(2) : r.odd_raw}
-        </div>
+      <div class="runner-odd">
+        ${r.odd_dec > 0 ? r.odd_dec.toFixed(2) : r.odd_raw}
       </div>
     </div>
   `).join("");
@@ -1095,10 +1094,11 @@ function selectRaceFromQueue(fi) {
   if (hasRealIds) {
     // Already have real IDs — use directly
     raceData.runners = race.runners.map(r => ({
-      id:      parseInt(r.id),
-      name:    r.name,
-      odd_raw: r.odd_raw || r.odd,
-      odd_dec: r.odd_dec || odd_to_decimal_js(r.odd_raw || r.odd)
+      id:       parseInt(r.id),
+      name:     r.name,
+      odd_raw:  r.odd_raw || r.odd,
+      odd_dec:  r.odd_dec || odd_to_decimal_js(r.odd_raw || r.odd),
+      prog_num: r.prog_num || ""
     }));
     document.getElementById("raceTitle").textContent = `🏇 ${race.runners.length} CABALLOS — ${race.name}`;
     renderRunners(raceData.runners);
@@ -1121,10 +1121,11 @@ function selectRaceFromQueue(fi) {
     }).then(r => r.json()).then(data => {
       if (data.runners && data.runners.length) {
         raceData.runners = data.runners.map(r => ({
-          id:      r.id,
-          name:    r.name,
-          odd_raw: r.odd_raw,
-          odd_dec: r.odd_dec
+          id:       r.id,
+          name:     r.name,
+          odd_raw:  r.odd_raw,
+          odd_dec:  r.odd_dec,
+          prog_num: r.prog_num || ""
         }));
         // Update queue with real data
         if (raceQueue[fi]) {
@@ -1348,11 +1349,12 @@ async function loadRaceByUrl(url, showToast = true) {
       url:       url,
       sport_id:  data.sport_id || 73,
       runners:   data.runners.map(r => ({
-        id:      r.id,
-        name:    r.name,
-        odd:     r.odd_raw,
-        odd_raw: r.odd_raw,
-        odd_dec: r.odd_dec
+        id:       r.id,
+        name:     r.name,
+        odd:      r.odd_raw,
+        odd_raw:  r.odd_raw,
+        odd_dec:  r.odd_dec,
+        prog_num: r.prog_num || ""
       })),
       name:      data.race_name && data.race_name !== "Carrera" ? data.race_name : ("Carrera " + new Date().toLocaleDateString('es')),
       ts:        new Date().toISOString().replace("Z","")
