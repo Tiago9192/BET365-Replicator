@@ -663,9 +663,10 @@ async function placeBet() {
 
       // Save to history
       betHistory.unshift({
-        date: new Date().toISOString(),
-        horse: raceData.selected.name,
-        odd: raceData.selected.odd_raw,
+        date:    new Date().toISOString(),
+        horse:   raceData.selected.name,
+        odd:     raceData.selected.odd_raw,
+        odd_dec: raceData.selected.odd_dec,
         stake,
         results: data.results
       });
@@ -919,7 +920,9 @@ function renderBetHistory() {
         <span style="font-size:11px;color:${ok===total?"var(--green)":"var(--red)"};font-weight:700">${ok}/${total}</span>
       </div>
       <div style="font-size:14px;font-weight:700">🏇 ${entry.horse||"—"}</div>
-      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);margin-top:4px">Cuota: ${entry.odd||"—"} · Stake: ${entry.stake||"—"}</div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);margin-top:4px">
+        Cuota: ${entry.odd_dec ? entry.odd_dec.toFixed(2) : (entry.odd||"—")} · Stake: ${entry.stake||"—"}
+      </div>
     </div>`;
   }).join("");
 }
