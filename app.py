@@ -593,30 +593,43 @@ def parse_prematch_runners(raw):
                 k, _, v = f.partition('=')
                 fields[k.strip()] = v.strip()
 
-        sel_id = fields.get('ID', '')
-        name   = fields.get('NA', '') or fields.get('NM', '')
-        # FW = Fixed Win odds (fractional e.g. 4/1)
-        # FP = Fixed Place odds
-        # OD = decimal odds
-        # OR = order/position (NOT odds - ignore this)
-        odd    = fields.get('FW', '') or fields.get('OD', '') or fields.get('HA', '')
+        sel_id   = fields.get('ID', '')
+        name     = fields.get('NA', '') or fields.get('NM', '')
+        odd      = fields.get('FW', '') or fields.get('OD', '') or fields.get('HA', '')
+        prog_num = fields.get('PN', '') or fields.get('SN', '')
+        fi_field = fields.get('FI', '')
+
+        # Skip records without a real horse name
+        if not name or name.isdigit() or len(name) <= 1:
+            continue
+
+        # Skip if no FI field (not a real runner record)
+        if not fi_field:
+            continue
+
+        # Skip if no program number (not a real runner)
+        if not prog_num:
+            continue
 
         try:
             sel_id_int = int(sel_id)
         except:
-            # Try extracting from IT field
-            it = fields.get('IT', '')
-            m = re.search(r'_(\d{7,12})(?:_|$)', it)
-            sel_id_int = int(m.group(1)) if m else 0
+            continue  # Must have valid ID
 
-        if name and len(name) > 1 and sel_id_int not in seen_ids:
+        # Skip if ID looks like it's from EP field (Exacta/Trifecta)
+        # Real win selection IDs are in ID= field directly
+        if sel_id_int == 0:
+            continue
+
+        if sel_id_int not in seen_ids:
             dec = odd_to_decimal(odd) if odd else 0
             seen_ids.add(sel_id_int)
             runners.append({
-                "id":      sel_id_int,
-                "name":    name,
-                "odd_raw": odd or "SP",
-                "odd_dec": dec or 0
+                "id":       sel_id_int,
+                "name":     name,
+                "odd_raw":  odd or "SP",
+                "odd_dec":  dec or 0,
+                "prog_num": prog_num
             })
 
     # Method 2: Regex for NA=Name patterns with odds
