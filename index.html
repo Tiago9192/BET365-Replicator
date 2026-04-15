@@ -273,6 +273,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 
   <!-- Selected horse + bet config -->
   <div id="betConfig" style="display:none">
+
+    <!-- Horse bar -->
     <div class="selected-horse-bar">
       <div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px">Caballo seleccionado</div>
@@ -281,26 +283,47 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
       <div class="selected-horse-odd" id="selHorseOdd">—</div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Configuración de la apuesta</div>
-
-      <!-- Odd selector (only shown when SP) -->
-      <div id="oddSelectorSection" style="display:none">
-        <div class="form-group">
-          <label class="form-label">Cuota manual</label>
-          <input type="number" class="form-input" id="manualOddInput" placeholder="ej: 3.5" step="0.25" min="1.01"
-            oninput="onManualOddInput(this.value)" style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700">
-          <div class="odd-chips" id="oddChips"></div>
+    <!-- SP: cuota + stake + disparar todo junto -->
+    <div id="oddSelectorSection" style="display:none">
+      <div class="card" style="padding:12px">
+        <div class="form-label" style="margin-bottom:6px">Cuota del tipster</div>
+        <input type="number" class="form-input" id="manualOddInput" placeholder="ej: 3.5" step="0.25" min="1.01"
+          oninput="onManualOddInput(this.value)"
+          style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;margin-bottom:8px">
+        <div class="odd-chips" id="oddChips" style="margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div style="flex:1">
+            <div class="form-label" style="margin-bottom:4px">Stake</div>
+            <input type="number" class="form-input" id="stakeInput" value="1" min="0.25" step="0.25"
+              oninput="updateStakePreview()" style="font-size:14px">
+          </div>
+          <button onclick="placeBet()"
+            style="flex:2;padding:13px;border-radius:10px;background:var(--green);color:#000;
+                   font-size:14px;font-weight:800;border:none;cursor:pointer;">
+            🚀 DISPARAR
+          </button>
         </div>
+        <div id="stakePreview" style="font-size:11px;color:var(--muted);margin-top:6px;display:none"></div>
       </div>
+    </div>
 
-      <div class="form-group">
-        <label class="form-label">Stake (unidades)</label>
-        <input type="number" class="form-input" id="stakeInput" value="1" min="0.25" step="0.25" oninput="updateStakePreview()">
-        <div id="stakePreview" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5;display:none"></div>
+    <!-- Cuota real: stake + disparar -->
+    <div id="normalStakeSection" style="display:none">
+      <div class="card" style="padding:12px">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div style="flex:1">
+            <div class="form-label" style="margin-bottom:4px">Stake</div>
+            <input type="number" class="form-input" id="stakeInput2" value="1" min="0.25" step="0.25"
+              oninput="syncStake(this.value)" style="font-size:14px">
+          </div>
+          <button onclick="placeBet()"
+            style="flex:2;padding:13px;border-radius:10px;background:var(--text);color:var(--bg);
+                   font-size:14px;font-weight:800;border:none;cursor:pointer;">
+            🚀 DISPARAR
+          </button>
+        </div>
+        <div id="stakePreview2" style="font-size:11px;color:var(--muted);margin-top:6px;display:none"></div>
       </div>
-
-
     </div>
 
     <div id="oddCheckResult" style="display:none"></div>
@@ -613,8 +636,7 @@ function selectRunner(id) {
 
   checkOddSelector();
   updateFireBtn();
-  // Scroll to bet config
-  document.getElementById("betConfig").scrollIntoView({behavior:"smooth", block:"nearest"});
+
 }
 
 // Odd chips per leading digit
@@ -660,16 +682,29 @@ function selectOddChip(odd) {
 }
 
 function checkOddSelector() {
-  const section = document.getElementById("oddSelectorSection");
-  if (!section || !raceData.selected) return;
+  if (!raceData.selected) return;
   const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw === "SP";
-  section.style.display = isSP ? "block" : "none";
+  const spSection     = document.getElementById("oddSelectorSection");
+  const normalSection = document.getElementById("normalStakeSection");
+  if (spSection)     spSection.style.display     = isSP ? "block" : "none";
+  if (normalSection) normalSection.style.display = isSP ? "none"  : "block";
   if (isSP) {
     const input = document.getElementById("manualOddInput");
     if (input) input.value = "";
     const chipsEl = document.getElementById("oddChips");
     if (chipsEl) chipsEl.innerHTML = "";
+  } else {
+    // Sync stake2 with stake
+    const s2 = document.getElementById("stakeInput2");
+    const s1 = document.getElementById("stakeInput");
+    if (s2 && s1) s2.value = s1.value;
   }
+}
+
+function syncStake(val) {
+  const s1 = document.getElementById("stakeInput");
+  if (s1) s1.value = val;
+  updateStakePreview();
 }
 
 function updateFireBtn() {
