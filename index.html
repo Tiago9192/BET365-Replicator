@@ -247,7 +247,10 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   <div id="raceQueue" style="display:none;margin-bottom:10px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div style="font-size:13px;font-weight:700">🏇 Carreras cargadas</div>
-      <button class="btn btn-danger btn-sm" onclick="clearRaceQueue()">Limpiar todo</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" id="updateAllBtn" onclick="updateAllOdds()">🔄 Todo</button>
+        <button class="btn btn-danger btn-sm" onclick="clearRaceQueue()">Limpiar</button>
+      </div>
     </div>
     <div id="raceQueueItems"></div>
   </div>
@@ -1008,10 +1011,14 @@ function renderRaceQueue() {
   Object.entries(venues).forEach(([venue, venueRaces]) => {
     const hasActive = venueRaces.some(r => r.fi === activeRaceFi);
 
+    const venueKey = venue.replace(/[^a-zA-Z0-9]/g, '_');
     html += `<div style="margin-bottom:10px;background:var(--surface);border:1.5px solid ${hasActive ? 'var(--green)' : 'var(--border)'};border-radius:12px;padding:10px 12px">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-        <span>🏟</span>
-        <span style="font-size:13px;font-weight:700">${venue}</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span>🏟</span>
+          <span style="font-size:13px;font-weight:700">${venue}</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="upd_${venueKey}" onclick="updateVenueOdds('${venue.replace(/'/g, "\'")}')">🔄</button>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">`;
 
@@ -1138,6 +1145,30 @@ function selectRaceFromQueue(fi) {
       updateFireBtn();
     });
   }
+}
+
+async function updateAllOdds() {
+  const btn = document.getElementById("updateAllBtn");
+  if (btn) { btn.textContent = "⏳"; btn.disabled = true; }
+  const fis = Object.keys(raceQueue);
+  let ok = 0;
+  // Update 3 at a time
+  for (let i = 0; i < fis.length; i += 3) {
+    await Promise.all(fis.slice(i, i+3).map(fi => updateRaceOdds(fi, true)));
+    ok += Math.min(3, fis.length - i);
+  }
+  toast(`✓ ${ok} carreras actualizadas`);
+  if (btn) { btn.textContent = "🔄 Todo"; btn.disabled = false; }
+}
+
+async function updateVenueOdds(venue) {
+  const venueKey = venue.replace(/[^a-zA-Z0-9]/g, '_');
+  const btn = document.getElementById(`upd_${venueKey}`);
+  if (btn) { btn.textContent = "⏳"; btn.disabled = true; }
+  const fis = Object.keys(raceQueue).filter(fi => getVenueFromName(raceQueue[fi].name) === venue);
+  await Promise.all(fis.map(fi => updateRaceOdds(fi, true)));
+  toast(`✓ ${venue} actualizado`);
+  if (btn) { btn.textContent = "🔄"; btn.disabled = false; }
 }
 
 async function updateRaceOdds(fi) {
