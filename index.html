@@ -171,6 +171,13 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
 .rq-runner-chip{font-family:'Space Mono',monospace;font-size:10px;padding:2px 7px;border-radius:4px;background:var(--card);color:var(--text);}
 .rq-runner-chip.sp{color:var(--muted);}
 
+/* Odd Selector */
+.odd-selector{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;}
+.odd-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.odd-chip{padding:6px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;transition:all 0.15s;font-family:'Space Mono',monospace;}
+.odd-chip:active{transform:scale(0.95);}
+.odd-chip.selected{border-color:var(--green);background:var(--green);color:#000;}
+
 /* Toast */
 #toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:13px;z-index:200;transition:transform 0.3s;max-width:320px;text-align:center;pointer-events:none;}
 #toast.show{transform:translateX(-50%) translateY(0);}
@@ -277,8 +284,18 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
     <div class="card">
       <div class="card-title">Configuración de la apuesta</div>
 
+      <!-- Odd selector (only shown when SP) -->
+      <div id="oddSelectorSection" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Cuota manual</label>
+          <input type="number" class="form-input" id="manualOddInput" placeholder="ej: 3.5" step="0.25" min="1.01"
+            oninput="onManualOddInput(this.value)" style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700">
+          <div class="odd-chips" id="oddChips"></div>
+        </div>
+      </div>
+
       <div class="form-group">
-        <label class="form-label">Stake (unidades — ej: 0.75, 1, 1.5)</label>
+        <label class="form-label">Stake (unidades)</label>
         <input type="number" class="form-input" id="stakeInput" value="1" min="0.25" step="0.25" oninput="updateStakePreview()">
         <div id="stakePreview" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5;display:none"></div>
       </div>
@@ -286,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
       <div class="form-group">
         <label class="form-label">Caída máxima de cuota (%)</label>
         <input type="number" class="form-input" id="dropPct" value="10" min="1" max="50">
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">Si la cuota baja más de este % → apuesta bloqueada. Si sube → se acepta automáticamente.</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Si la cuota baja más de este % → apuesta bloqueada.</div>
       </div>
     </div>
 
@@ -546,17 +563,41 @@ function renderRunners(runners) {
   document.getElementById("runnersList").style.display = "block";
   document.getElementById("raceTitle").textContent = `🏇 ${runners.length} CABALLOS — SELECCIONA EL GANADOR`;
 
-  document.getElementById("runnersItems").innerHTML = runners.map((r, i) => `
+  document.getElementById("runnersItems").innerHTML = runners.map((r, i) => {
+    const isSP  = !r.odd_dec || r.odd_dec <= 0 || r.odd_raw === "SP";
+    const oddDisplay = isSP
+      ? `<input type="number" class="form-input" id="odd_input_${r.id}"
+           value="" placeholder="SP"
+           step="0.05" min="1.01"
+           style="width:70px;text-align:right;font-size:13px;font-family:'Space Mono',monospace;
+                  color:var(--yellow);padding:4px 6px;height:32px;"
+           onclick="event.stopPropagation()"
+           onchange="updateRunnerOdd(${r.id}, this.value)">`
+      : `<div class="runner-odd">${r.odd_dec.toFixed(2)}</div>`;
+    return `
     <div class="runner-card" id="runner-${r.id}" onclick="selectRunner(${r.id})">
       <div class="runner-num">${r.prog_num || (i+1)}</div>
       <div class="runner-info">
         <div class="runner-name">${r.name}</div>
       </div>
-      <div class="runner-odd">
-        ${r.odd_dec > 0 ? r.odd_dec.toFixed(2) : r.odd_raw}
-      </div>
-    </div>
-  `).join("");
+      ${oddDisplay}
+    </div>`;
+  }).join("");
+}
+
+function updateRunnerOdd(id, value) {
+  const runner = raceData.runners.find(r => r.id === id);
+  if (!runner) return;
+  const dec = parseFloat(value);
+  if (!dec || dec < 1.01) return;
+  runner.odd_dec = dec;
+  runner.odd_raw = value;
+  // If this runner is selected, update the display
+  if (raceData.selected && raceData.selected.id === id) {
+    raceData.selected.odd_dec = dec;
+    raceData.selected.odd_raw = value;
+    document.getElementById("selHorseOdd").textContent = dec.toFixed(2);
+  }
 }
 
 function selectRunner(id) {
@@ -574,9 +615,65 @@ function selectRunner(id) {
   document.getElementById("oddCheckResult").style.display = "none";
   document.getElementById("betResults").innerHTML = "";
 
+  checkOddSelector();
   updateFireBtn();
   // Scroll to bet config
   document.getElementById("betConfig").scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+
+// Odd chips per leading digit
+const ODD_CHIPS = {
+  "0": [0.50, 0.75],
+  "1": [1.00, 1.25, 1.50, 1.75],
+  "2": [2.00, 2.25, 2.50, 2.75],
+  "3": [3.00, 3.25, 3.50, 3.75],
+  "4": [4.00, 4.25, 4.50, 4.75],
+  "5": [5.00, 5.50],
+  "6": [6.00, 6.50],
+  "7": [7.00, 7.50],
+  "8": [8.00, 8.50],
+  "9": [9.00, 9.50],
+};
+
+function onManualOddInput(val) {
+  const chipsEl = document.getElementById("oddChips");
+  if (!chipsEl) return;
+  const digit = val.toString().trim()[0] || "";
+  const chips = ODD_CHIPS[digit] || [];
+  chipsEl.innerHTML = chips.map(c => `
+    <button class="odd-chip ${parseFloat(val) === c ? 'selected' : ''}"
+      onclick="selectOddChip(${c})">${c.toFixed(2)}</button>
+  `).join("");
+}
+
+function selectOddChip(odd) {
+  const input = document.getElementById("manualOddInput");
+  if (input) {
+    input.value = odd.toFixed(2);
+    // Update chips selection
+    document.querySelectorAll(".odd-chip").forEach(c => {
+      c.classList.toggle("selected", parseFloat(c.textContent) === odd);
+    });
+    // Update selected horse odd
+    if (raceData.selected) {
+      raceData.selected.odd_raw = odd.toFixed(2);
+      raceData.selected.odd_dec = odd;
+      document.getElementById("selHorseOdd").textContent = odd.toFixed(2);
+    }
+  }
+}
+
+function checkOddSelector() {
+  const section = document.getElementById("oddSelectorSection");
+  if (!section || !raceData.selected) return;
+  const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw === "SP";
+  section.style.display = isSP ? "block" : "none";
+  if (isSP) {
+    const input = document.getElementById("manualOddInput");
+    if (input) input.value = "";
+    const chipsEl = document.getElementById("oddChips");
+    if (chipsEl) chipsEl.innerHTML = "";
+  }
 }
 
 function updateFireBtn() {
@@ -606,6 +703,18 @@ async function placeBet() {
 
   const stake   = parseFloat(document.getElementById("stakeInput").value) || 10;
   const dropPct = parseFloat(document.getElementById("dropPct").value) || 10;
+
+  // Use manual odd if SP
+  const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw === "SP";
+  if (isSP) {
+    const manualOdd = parseFloat(document.getElementById("manualOddInput")?.value);
+    if (!manualOdd || manualOdd < 1.01) {
+      toast("Ingresa la cuota del tipster antes de disparar", "warn");
+      return;
+    }
+    raceData.selected.odd_raw = manualOdd.toFixed(2);
+    raceData.selected.odd_dec = manualOdd;
+  }
 
   isFiring = true;
   updateFireBtn();
@@ -1153,9 +1262,9 @@ async function updateAllOdds() {
   const fis = Object.keys(raceQueue);
   let ok = 0;
   // Update 3 at a time
-  for (let i = 0; i < fis.length; i += 3) {
-    await Promise.all(fis.slice(i, i+3).map(fi => updateRaceOdds(fi, true)));
-    ok += Math.min(3, fis.length - i);
+  for (let i = 0; i < fis.length; i += 5) {
+    await Promise.all(fis.slice(i, i+5).map(fi => updateRaceOdds(fi, true)));
+    ok += Math.min(5, fis.length - i);
   }
   toast(`✓ ${ok} carreras actualizadas`);
   if (btn) { btn.textContent = "🔄 Todo"; btn.disabled = false; }
