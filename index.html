@@ -547,18 +547,30 @@ function renderRunners(runners) {
         ${isSP ? `
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:6px">Cuota del tipster</div>
           <input type="number" id="manualOddInput" placeholder="ej: 3.5" step="0.25" min="1.01"
+            inputmode="decimal"
             oninput="onManualOddInput(this.value)"
             style="width:100%;background:var(--surface);border:1px solid var(--border);
                    border-radius:8px;padding:8px 10px;color:var(--text);
                    font-family:'Space Mono',monospace;font-size:16px;font-weight:700;
                    outline:none;margin-bottom:8px;box-sizing:border-box;">
-          <div class="odd-chips" id="oddChips" style="margin-bottom:10px"></div>
         ` : ''}
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:6px">Stake</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">
+          ${[0.5,0.75,1,1.25,1.5,1.75,2,2.5,3].map(s =>
+            `<button onclick="selectStakeChip(${s})" id="stake-chip-${String(s).replace('.','_')}"
+              style="padding:6px 10px;border-radius:7px;border:1.5px solid var(--border);
+                     background:${parseFloat(stakeVal)===s?'var(--green)':'var(--surface)'};
+                     color:${parseFloat(stakeVal)===s?'#000':'var(--text)'};
+                     font-size:12px;font-weight:700;cursor:pointer;font-family:'Space Mono',monospace;">
+              ${s}
+            </button>`
+          ).join('')}
+        </div>
         <div style="display:flex;gap:8px;align-items:flex-end">
           <div style="flex:1">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px">Stake</div>
             <input type="number" id="stakeInput" value="${stakeVal}" min="0.25" step="0.25"
-              oninput="updateStakePreview()"
+              inputmode="decimal"
+              oninput="updateStakeChips(this.value)"
               style="width:100%;background:var(--surface);border:1px solid var(--border);
                      border-radius:8px;padding:8px 10px;color:var(--text);
                      font-size:14px;font-weight:700;outline:none;box-sizing:border-box;">
@@ -643,6 +655,31 @@ const ODD_CHIPS = {
   "8": [8.00, 8.50],
   "9": [9.00, 9.50],
 };
+
+function selectStakeChip(val) {
+  const input = document.getElementById("stakeInput");
+  if (input) { input.value = val; updateStakePreview(); }
+  // Update chip styles
+  [0.5,0.75,1,1.25,1.5,1.75,2,2.5,3].forEach(s => {
+    const btn = document.getElementById("stake-chip-" + String(s).replace(".","_"));
+    if (!btn) return;
+    btn.style.background = s === val ? "var(--green)" : "var(--surface)";
+    btn.style.color      = s === val ? "#000"         : "var(--text)";
+    btn.style.borderColor = s === val ? "var(--green)" : "var(--border)";
+  });
+}
+
+function updateStakeChips(val) {
+  updateStakePreview();
+  const num = parseFloat(val);
+  [0.5,0.75,1,1.25,1.5,1.75,2,2.5,3].forEach(s => {
+    const btn = document.getElementById("stake-chip-" + String(s).replace(".","_"));
+    if (!btn) return;
+    btn.style.background  = s === num ? "var(--green)" : "var(--surface)";
+    btn.style.color       = s === num ? "#000"         : "var(--text)";
+    btn.style.borderColor = s === num ? "var(--green)" : "var(--border)";
+  });
+}
 
 function onManualOddInput(val) {
   const chipsEl = document.getElementById("oddChips");
