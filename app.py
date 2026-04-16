@@ -38,6 +38,38 @@ def get_db():
         ssl_context=True
     )
 
+# ── Race Queue persistence ────────────────────────────────────────────────────
+def load_race_queue():
+    """Load race queue from PostgreSQL."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            import json as _json
+            return _json.loads(row[0])
+    except Exception as e:
+        print(f"load_race_queue error: {e}")
+    return {}
+
+def save_race_queue(queue):
+    """Save race queue to PostgreSQL."""
+    try:
+        import json as _json
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO settings (key, value) VALUES (:key, :value)
+            ON CONFLICT (key) DO UPDATE SET value = :value
+        """, {"key": "race_queue", "value": _json.dumps(queue)})
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_race_queue error: {e}")
+
+
 def db_exec(sql, *params):
     """Execute SQL and return rows as list of dicts."""
     conn = get_db()
@@ -1051,42 +1083,15 @@ except Exception as e:
     print(f"Database init error: {e}")
 
 if "RACE_QUEUE" not in app.config:
-    app.config["RACE_QUEUE"] = load_race_queue()   # Load from PostgreSQL on startup
-    print(f"Race queue loaded: {len(app.config['RACE_QUEUE'])} races")
+    try:
+        app.config["RACE_QUEUE"] = load_race_queue()
+        print(f"Race queue loaded: {len(app.config['RACE_QUEUE'])} races")
+    except Exception as e:
+        print(f"Race queue load error: {e}")
+        app.config["RACE_QUEUE"] = {}
 
 import threading as _threading
 RACE_QUEUE_LOCK = _threading.Lock()
-
-# ── Race Queue persistence ────────────────────────────────────────────────────
-def load_race_queue():
-    """Load race queue from PostgreSQL."""
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
-        row = cursor.fetchone()
-        conn.close()
-        if row and row[0]:
-            import json as _json
-            return _json.loads(row[0])
-    except Exception as e:
-        print(f"load_race_queue error: {e}")
-    return {}
-
-def save_race_queue(queue):
-    """Save race queue to PostgreSQL."""
-    try:
-        import json as _json
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO settings (key, value) VALUES (:key, :value)
-            ON CONFLICT (key) DO UPDATE SET value = :value
-        """, {"key": "race_queue", "value": _json.dumps(queue)})
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"save_race_queue error: {e}")
 
 def cors_response(data, status=200):
     resp = jsonify(data)
