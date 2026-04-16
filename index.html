@@ -278,7 +278,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   <!-- Hidden inputs for stake/dropPct used by placeBet -->
   <input type="hidden" id="stakeInput" value="1">
   <input type="hidden" id="dropPct" value="10">
-  <input type="hidden" id="manualOddInput_hidden" value="">
+  <input type="hidden" id="manualOddInput" value="">
 
 </div>
 
@@ -700,12 +700,6 @@ function onManualOddInput(val) {
     <button class="odd-chip ${parseFloat(val) === c ? 'selected' : ''}"
       onclick="selectOddChip(${c})">${c.toFixed(2)}</button>
   `).join("");
-  // Update raceData.selected immediately so placeBet always has the latest value
-  const dec = parseFloat(val);
-  if (dec >= 1.01 && raceData.selected) {
-    raceData.selected.odd_raw = val;
-    raceData.selected.odd_dec = dec;
-  }
 }
 
 function selectOddChip(odd) {
@@ -782,7 +776,6 @@ async function placeBet() {
   // Use manual odd if SP
   const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw === "SP";
   if (isSP) {
-    // Read from the visible inline panel input (id="manualOddInput" rendered inside the runner panel)
     const manualOdd = parseFloat(document.getElementById("manualOddInput")?.value);
     if (!manualOdd || manualOdd < 1.01) {
       toast("Ingresa la cuota del tipster antes de disparar", "warn");
