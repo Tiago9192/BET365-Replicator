@@ -1403,9 +1403,9 @@ async function updateAllOdds() {
   const fis = Object.keys(raceQueue);
   let ok = 0;
   // Update 3 at a time
-  for (let i = 0; i < fis.length; i += 5) {
-    await Promise.all(fis.slice(i, i+5).map(fi => updateRaceOdds(fi, true)));
-    ok += Math.min(5, fis.length - i);
+  for (let i = 0; i < fis.length; i += 10) {
+    await Promise.all(fis.slice(i, i+10).map(fi => updateRaceOdds(fi, true)));
+    ok += Math.min(10, fis.length - i);
   }
   toast(`✓ ${ok} carreras actualizadas`);
   if (btn) { btn.textContent = "🔄 Todo"; btn.disabled = false; }
@@ -1565,7 +1565,7 @@ async function loadMultiple() {
   // Load in parallel - max 3 at a time to avoid overwhelming QRSolver
   let loaded = 0;
   let errors = 0;
-  const chunkSize = 3;
+  const chunkSize = 10;
 
   for (let i = 0; i < urls.length; i += chunkSize) {
     const chunk = urls.slice(i, i + chunkSize);
