@@ -1446,10 +1446,74 @@ def midnight_distribution():
         except Exception:
             pass
 
+def auto_refresh_races():
+    """Auto-refresh all loaded races every day at 14:00 Spain time (UTC+1/UTC+2)."""
+    import concurrent.futures
+    while True:
+        try:
+            now_utc = datetime.utcnow()
+            # Spain is UTC+1 in winter, UTC+2 in summer (DST: last Sunday March - last Sunday October)
+            month = now_utc.month
+            is_dst = 3 < month < 10 or (month == 3 and now_utc.day >= 25) or (month == 10 and now_utc.day < 25)
+            spain_offset = 2 if is_dst else 1
+            target_utc_hour = 14 - spain_offset  # 14:00 Spain = 12:00 or 13:00 UTC
+
+            next_run = now_utc.replace(hour=target_utc_hour, minute=0, second=0, microsecond=0)
+            if now_utc >= next_run:
+                next_run = next_run + __import__('datetime').timedelta(days=1)
+
+            sleep_secs = (next_run - now_utc).total_seconds()
+            print(f"Auto-refresh races scheduled in {int(sleep_secs/60)} min (at 14:00 Spain)")
+            time.sleep(sleep_secs)
+
+            # Refresh all races in parallel (10 at a time)
+            queue = app.config.get("RACE_QUEUE", {})
+            if not queue:
+                print("Auto-refresh: no races in queue")
+                continue
+
+            print(f"Auto-refresh: refreshing {len(queue)} races...")
+            settings    = load_settings()
+            guest_proxy = settings.get("guest_proxy", "").strip()
+
+            def refresh_one(fi_race):
+                fi, race = fi_race
+                try:
+                    runners, sport_id, race_fi, pd, race_name = get_runners_from_url(race["url"], guest_proxy)
+                    if runners:
+                        race["runners"]   = [{
+                            "id": r["id"], "name": r["name"],
+                            "odd": r["odd_raw"], "odd_raw": r["odd_raw"],
+                            "odd_dec": r["odd_dec"], "prog_num": r.get("prog_num","")
+                        } for r in runners]
+                        race["ts"] = datetime.utcnow().isoformat()
+                        return fi, True
+                except Exception as e:
+                    print(f"Auto-refresh error for {fi}: {e}")
+                return fi, False
+
+            updated = 0
+            items   = list(queue.items())
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                results = list(executor.map(refresh_one, items))
+
+            for fi, ok in results:
+                if ok:
+                    updated += 1
+
+            app.config["RACE_QUEUE"] = queue
+            print(f"Auto-refresh done: {updated}/{len(queue)} races updated")
+
+        except Exception as e:
+            print(f"Auto-refresh error: {e}")
+            time.sleep(60)
+
 t_midnight = threading.Thread(target=midnight_distribution, daemon=True)
 t_midnight.start()
 t_autologout = threading.Thread(target=auto_logout_loop, daemon=True)
 t_autologout.start()
+t_autorefresh = threading.Thread(target=auto_refresh_races, daemon=True)
+t_autorefresh.start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
