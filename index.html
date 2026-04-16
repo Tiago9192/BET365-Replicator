@@ -263,7 +263,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   </div>
 
   <!-- Runners list -->
-  <div id="runnersList" style="display:none">
+  <div id="runnersList" style="display:none;visibility:hidden;height:0;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div class="card-title" style="margin:0" id="raceTitle">CABALLOS</div>
       <button class="btn btn-ghost btn-sm" onclick="refreshCurrentRace()">🔄 Actualizar cuotas</button>
@@ -1280,15 +1280,12 @@ function renderRaceQueue() {
 
     // Close flex row, then show inline panel full width below
     const activeRace = venueRaces.find(r => r.fi === activeRaceFi);
-    if (activeRace) {
+    if (activeRace && activeRace.runners && activeRace.runners.length) {
       html += `</div>
-      <div style="margin-top:10px;border-top:1px solid rgba(34,197,94,0.3);padding-top:10px;"
+      <div style="margin-top:8px;background:rgba(34,197,94,0.04);
+        border:2px solid var(--green);border-radius:10px;padding:8px;"
         id="raceInlinePanel_${activeRace.fi}">
-        <div id="raceInlineRunners_${activeRace.fi}">
-          ${(!activeRace.runners || !activeRace.runners.length) 
-            ? `<div style="color:var(--muted);font-size:12px;padding:8px;text-align:center">⏳ Cargando caballos...</div>`
-            : ''}
-        </div>
+        <div id="raceInlineRunners_${activeRace.fi}"></div>
       </div>`;
     } else {
       html += `</div>`;
@@ -1310,38 +1307,34 @@ function selectRaceFromQueue(fi) {
   // Toggle — if already active, close it
   if (activeRaceFi === fi) {
     activeRaceFi = null;
-    renderRaceQueue();
-    document.getElementById("runnersList").style.display = "none";
-    document.getElementById("betConfig").style.display   = "none";
     raceData.selected = null;
+    raceData.runners  = [];
+    renderRaceQueue();
     updateFireBtn();
     return;
   }
 
   activeRaceFi = fi;
-  renderRaceQueue();
+  raceData.url      = race.url;
+  raceData.fi       = parseInt(fi);
+  raceData.sport_id = race.sport_id || 73;
+  raceData.selected = null;
 
-  // Auto scroll to race button
+  // Show loading inside inline panel
+  renderRaceQueue();
+  const inlineEl = document.getElementById("raceInlineRunners_" + fi);
+  if (inlineEl) inlineEl.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px">⏳ Cargando caballos...</div>`;
+
+  // Auto scroll to race block
   setTimeout(() => {
     const btn = document.getElementById("raceBtn_" + fi);
     if (btn) {
       const y = btn.getBoundingClientRect().top + window.scrollY - 70;
       window.scrollTo({top: y, behavior: "smooth"});
     }
-  }, 50);
+  }, 60);
 
-  // Load into main race data
-  raceData.url      = race.url;
-  raceData.fi       = parseInt(fi);
-  raceData.sport_id = race.sport_id || 73;
-  raceData.selected = null;
-
-  // Check if runners have real IDs (from prematch) or just indices (from bookmarklet)
   const hasRealIds = race.runners && race.runners.some(r => r.id && parseInt(r.id) > 1000000);
-
-  // Always hide the old separate runners list — we render inline inside the venue block
-  document.getElementById("runnersList").style.display = "none";
-  document.getElementById("betConfig").style.display   = "none";
 
   if (hasRealIds) {
     raceData.runners = race.runners.map(r => ({
@@ -1351,35 +1344,11 @@ function selectRaceFromQueue(fi) {
       odd_dec:  r.odd_dec || odd_to_decimal_js(r.odd_raw || r.odd),
       prog_num: r.prog_num || ""
     }));
-    // Re-render queue so the inline panel appears, then populate runners
-    renderRaceQueue();
     renderInlineRunners(fi, raceData.runners);
     updateFireBtn();
     toast(`Carrera seleccionada: ${race.name}`);
-    // Scroll to the venue block
-    setTimeout(() => {
-      const panel = document.getElementById("raceInlinePanel_" + fi);
-      if (panel) {
-        const y = panel.getBoundingClientRect().top + window.scrollY - 70;
-        window.scrollTo({top: y, behavior: "smooth"});
-      }
-    }, 80);
   } else {
-    // Show loading spinner inside venue block
-    renderRaceQueue();
-    const inlineEl = document.getElementById("raceInlineRunners_" + fi);
-    if (inlineEl) inlineEl.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:10px;text-align:center">⏳ Cargando caballos...</div>`;
-    updateFireBtn();
-    toast(`Obteniendo datos actualizados...`, "info");
-    // Scroll to venue block right away
-    setTimeout(() => {
-      const panel = document.getElementById("raceInlinePanel_" + fi);
-      if (panel) {
-        const y = panel.getBoundingClientRect().top + window.scrollY - 70;
-        window.scrollTo({top: y, behavior: "smooth"});
-      }
-    }, 80);
-
+    // Fetch from API
     fetch(`${API}/api/race/runners`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -1388,36 +1357,39 @@ function selectRaceFromQueue(fi) {
       if (data.runners && data.runners.length) {
         raceData.runners = data.runners.map(r => ({
           id: r.id, name: r.name,
-          odd_raw: r.odd_raw, odd_dec: r.odd_dec, prog_num: r.prog_num || ""
+          odd_raw: r.odd_raw, odd_dec: r.odd_dec,
+          prog_num: r.prog_num || ""
         }));
         if (raceQueue[fi]) {
           raceQueue[fi].runners = data.runners.map(r => ({
             id: r.id, name: r.name,
-            odd: r.odd_raw, odd_raw: r.odd_raw, odd_dec: r.odd_dec
+            odd: r.odd_raw, odd_raw: r.odd_raw,
+            odd_dec: r.odd_dec, prog_num: r.prog_num || ""
           }));
         }
         renderInlineRunners(fi, raceData.runners);
         updateFireBtn();
         toast(`${data.runners.length} caballos cargados ✓`);
       } else {
-        raceData.runners = race.runners.map((r, i) => ({
+        raceData.runners = (race.runners || []).map((r, i) => ({
           id: r.id || i, name: r.name,
-          odd_raw: r.odd, odd_dec: odd_to_decimal_js(r.odd)
+          odd_raw: r.odd, odd_dec: odd_to_decimal_js(r.odd), prog_num: r.prog_num || ""
         }));
         renderInlineRunners(fi, raceData.runners);
         updateFireBtn();
-        toast(`Caballos cargados`, "warn");
+        toast(`Caballos cargados (SP)`, "warn");
       }
-    }).catch(e => {
-      raceData.runners = race.runners.map((r, i) => ({
+    }).catch(() => {
+      raceData.runners = (race.runners || []).map((r, i) => ({
         id: r.id || i, name: r.name,
-        odd_raw: r.odd, odd_dec: odd_to_decimal_js(r.odd)
+        odd_raw: r.odd, odd_dec: odd_to_decimal_js(r.odd), prog_num: r.prog_num || ""
       }));
       renderInlineRunners(fi, raceData.runners);
       updateFireBtn();
     });
   }
 }
+
 
 async function updateAllOdds() {
   const btn = document.getElementById("updateAllBtn");
@@ -1480,13 +1452,13 @@ async function updateRaceOdds(fi) {
 
       renderRaceQueue();
 
-      // If this is the active race, refresh the runners display inline
+      // If this is the active race, refresh the runners display
       if (activeRaceFi === fi) {
         raceData.runners = data.runners.map(r => ({
           id: r.id, name: r.name,
           odd_raw: r.odd_raw, odd_dec: r.odd_dec
         }));
-        renderInlineRunners(fi, raceData.runners);
+        renderRunners(raceData.runners);
       }
       toast("Cuotas actualizadas ✓");
     }
