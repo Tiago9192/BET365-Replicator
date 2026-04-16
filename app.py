@@ -603,6 +603,18 @@ def parse_prematch_runners(raw):
         if not name or name.isdigit() or len(name) <= 1:
             continue
 
+        # Skip fake entries like Favourite, 2nd Favourite, etc.
+        skip_names = ['favourite', 'favorite', '2nd favourite', '2nd favorite',
+                      'third favourite', 'field', 'unnamed', 'unnamed favourite']
+        if name.lower().strip() in skip_names:
+            continue
+        # Skip if name is just a number like "99", "10"
+        try:
+            int(name.strip())
+            continue
+        except:
+            pass
+
         # Skip if no FI field (not a real runner record)
         if not fi_field:
             continue
@@ -844,19 +856,16 @@ def place_bet_all():
 
         account_stake = get_stake_for_account(account)
 
-        # Build selection — if SP omit odd to let Bet365 apply market price
-        is_sp = not odd_raw or odd_raw in ("SP", "0", "")
         selection = {
             "sport_id":         sport_id,
             "fi":               fi,
             "id":               selection_id,
+            "odd":              odd_raw,
             "stake":            account_stake,
             "accept_min_odd":   1.01,
             "accept_max_odd":   1000.0,
             "accept_odd_lines": []
         }
-        if not is_sp:
-            selection["odd"] = odd_raw
 
         bet_body = {
             "type":       "singles",
