@@ -603,10 +603,19 @@ def parse_prematch_runners(raw):
         if not name or name.isdigit() or len(name) <= 1:
             continue
 
-        # Skip fake entries like Favourite, 2nd Favourite, etc.
-        skip_names = ['favourite', 'favorite', '2nd favourite', '2nd favorite',
-                      'third favourite', 'field', 'unnamed', 'unnamed favourite']
-        if name.lower().strip() in skip_names:
+        # Skip fake entries like Favourite, Favorito, 2nd Favourite, etc.
+        name_lower = name.lower().strip()
+        skip_names = [
+            'favourite', 'favorite', '2nd favourite', '2nd favorite',
+            'third favourite', 'field', 'unnamed', 'unnamed favourite',
+            'favorito', 'favorita', '2º favorito', '2o favorito',
+            '2nd favorito', 'segundo favorito', 'tercer favorito',
+            'the field', 'field bet'
+        ]
+        if name_lower in skip_names:
+            continue
+        # Skip names starting with "2º", "2o", "2nd", "3rd" followed by space
+        if name_lower.startswith(('2º', '2o ', '2nd ', '3rd ', 'tercer')):
             continue
         # Skip if name is just a number like "99", "10"
         try:
