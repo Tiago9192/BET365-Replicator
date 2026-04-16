@@ -614,8 +614,8 @@ def parse_prematch_runners(raw):
         ]
         if name_lower in skip_names:
             continue
-        # Skip names starting with "2º", "2o", "2nd", "3rd" followed by space
-        if name_lower.startswith(('2º', '2o ', '2nd ', '3rd ', 'tercer')):
+        # Skip names that are clearly fake betting entries
+        if name_lower.startswith(('2º favorit', '2o favorit', '2nd favour', '3rd favour')):
             continue
         # Skip if name is just a number like "99", "10"
         try:
