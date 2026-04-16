@@ -622,7 +622,8 @@ function selectRunner(id) {
   // Toggle — click same horse closes panel
   if (raceData.selected && raceData.selected.id === id) {
     raceData.selected = null;
-    renderRunners(raceData.runners);
+    if (activeRaceFi) renderInlineRunners(activeRaceFi, raceData.runners);
+    else renderRunners(raceData.runners);
     updateFireBtn();
     return;
   }
@@ -631,12 +632,21 @@ function selectRunner(id) {
   document.getElementById("oddCheckResult").style.display = "none";
   document.getElementById("betResults").innerHTML = "";
 
-  // Re-render so inline panel appears under selected horse
-  renderRunners(raceData.runners);
+  // Re-render inline runners panel
+  if (activeRaceFi) {
+    renderInlineRunners(activeRaceFi, raceData.runners);
+  } else {
+    renderRunners(raceData.runners);
+  }
   updateFireBtn();
 
-  // Focus right input
+  // Auto scroll to selected runner
   setTimeout(() => {
+    const el = document.getElementById("runner-" + id);
+    if (el) {
+      const y = el.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({top: y, behavior: "smooth"});
+    }
     const isSP = !runner.odd_raw || runner.odd_raw === "SP";
     document.getElementById(isSP ? "manualOddInput" : "stakeInput")?.focus();
   }, 50);
@@ -1147,6 +1157,68 @@ function toggleVenue(venue) {
   renderRaceQueue();
 }
 
+function renderInlineRunners(fi, runners) {
+  const el = document.getElementById("raceInlineRunners_" + fi);
+  if (!el) return;
+  const stakeVal = document.getElementById("stakeInput")?.value || "1";
+  el.innerHTML = runners.map((r, i) => {
+    const isSP     = !r.odd_dec || r.odd_dec <= 0 || r.odd_raw === "SP";
+    const oddLabel = r.odd_dec > 0 ? r.odd_dec.toFixed(2) : (r.odd_raw || "SP");
+    const isActive = raceData.selected && raceData.selected.id === r.id;
+
+    const inlinePanel = isActive ? `
+      <div style="background:rgba(34,197,94,0.08);border:2px solid var(--green);border-top:none;
+                  border-radius:0 0 8px 8px;padding:10px;margin-top:0;margin-bottom:6px;">
+        ${isSP ? `
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:6px">Cuota del tipster</div>
+          <input type="number" id="manualOddInput" placeholder="ej: 3.5" step="0.25" min="1.01"
+            inputmode="decimal" oninput="onManualOddInput(this.value)"
+            style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;
+                   padding:8px 10px;color:var(--text);font-family:'Space Mono',monospace;
+                   font-size:16px;font-weight:700;outline:none;margin-bottom:8px;box-sizing:border-box;">
+          <div class="odd-chips" id="oddChips" style="margin-bottom:10px"></div>
+        ` : ''}
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:6px">Stake</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">
+          ${[0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3,3.25].map(s =>
+            `<button onclick="selectStakeChip(${s})" id="stake-chip-${String(s).replace('.','_')}"
+              style="padding:6px 10px;border-radius:7px;border:1.5px solid var(--border);
+                     background:${parseFloat(stakeVal)===s?'var(--green)':'var(--surface)'};
+                     color:${parseFloat(stakeVal)===s?'#000':'var(--text)'};
+                     font-size:12px;font-weight:700;cursor:pointer;font-family:'Space Mono',monospace;">
+              ${s}
+            </button>`
+          ).join('')}
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div style="flex:1">
+            <input type="number" id="stakeInput" value="${stakeVal}" min="0.25" step="0.25"
+              inputmode="decimal" oninput="updateStakeChips(this.value)"
+              style="width:100%;background:var(--surface);border:1px solid var(--border);
+                     border-radius:8px;padding:8px 10px;color:var(--text);
+                     font-size:14px;font-weight:700;outline:none;box-sizing:border-box;">
+          </div>
+          <button onclick="placeBet()"
+            style="flex:2;padding:12px;border-radius:8px;background:var(--green);color:#000;
+                   font-size:14px;font-weight:800;border:none;cursor:pointer;">
+            🚀 DISPARAR
+          </button>
+        </div>
+        <div id="stakePreview" style="font-size:11px;color:var(--muted);margin-top:6px;display:none"></div>
+      </div>` : '';
+
+    return `
+      <div class="runner-card ${isActive ? 'selected' : ''}" id="runner-${r.id}"
+        onclick="selectRunner(${r.id})"
+        style="${isActive ? 'border-radius:8px 8px 0 0;border-bottom-color:transparent;margin-bottom:0;' : ''}">
+        <div class="runner-num">${r.prog_num || (i+1)}</div>
+        <div class="runner-info"><div class="runner-name">${r.name}</div></div>
+        <div class="runner-odd" style="color:${isSP?'var(--yellow)':'var(--green)'}">${oddLabel}</div>
+      </div>
+      ${inlinePanel}`;
+  }).join("");
+}
+
 function getRaceNumber(race) {
   const nameParts = race.name ? race.name.split(" — ") : [];
   const raceStr   = nameParts[1] || "";
@@ -1195,15 +1267,28 @@ function renderRaceQueue() {
       const hasOdds  = race.runners && race.runners.some(r => r.odd && r.odd !== 'SP');
       const num      = getRaceNumber(race) || (idx + 1);
 
-      html += `<button onclick="selectRaceFromQueue('${race.fi}')"
-        style="width:36px;height:36px;border-radius:8px;
+      html += `<button id="raceBtn_${race.fi}" onclick="selectRaceFromQueue('${race.fi}')"
+        style="width:36px;height:36px;border-radius:${isActive ? '8px 8px 0 0' : '8px'};
                border:2px solid ${isActive ? 'var(--green)' : 'var(--border)'};
+               border-bottom:${isActive ? '2px solid rgba(34,197,94,0.08)' : '2px solid var(--border)'};
                background:${isActive ? 'var(--green)' : 'var(--card)'};
                color:${isActive ? '#000' : 'var(--text)'};
                font-size:13px;font-weight:700;cursor:pointer;
                position:relative;transition:all 0.15s;">
         ${num}${!hasOdds ? '<span style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;background:var(--yellow);border-radius:50%"></span>' : ''}
       </button>`;
+
+      // Inline runners panel
+      if (isActive && race.runners && race.runners.length) {
+        html += `<div style="
+          width:100%;margin-top:-2px;margin-bottom:4px;
+          background:rgba(34,197,94,0.04);
+          border:2px solid var(--green);border-top:none;
+          border-radius:0 8px 8px 8px;padding:8px;
+          " id="raceInlinePanel_${race.fi}">
+          <div id="raceInlineRunners_${race.fi}"></div>
+        </div>`;
+      }
     });
 
     html += `</div></div>`;
@@ -1231,6 +1316,15 @@ function selectRaceFromQueue(fi) {
 
   activeRaceFi = fi;
   renderRaceQueue();
+
+  // Auto scroll to race button
+  setTimeout(() => {
+    const btn = document.getElementById("raceBtn_" + fi);
+    if (btn) {
+      const y = btn.getBoundingClientRect().top + window.scrollY - 70;
+      window.scrollTo({top: y, behavior: "smooth"});
+    }
+  }, 50);
 
   // Load into main race data
   raceData.url      = race.url;
