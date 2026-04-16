@@ -1051,10 +1051,42 @@ except Exception as e:
     print(f"Database init error: {e}")
 
 if "RACE_QUEUE" not in app.config:
-    app.config["RACE_QUEUE"] = {}   # key = fi (fixture id)
+    app.config["RACE_QUEUE"] = load_race_queue()   # Load from PostgreSQL on startup
+    print(f"Race queue loaded: {len(app.config['RACE_QUEUE'])} races")
 
 import threading as _threading
 RACE_QUEUE_LOCK = _threading.Lock()
+
+# ── Race Queue persistence ────────────────────────────────────────────────────
+def load_race_queue():
+    """Load race queue from PostgreSQL."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            import json as _json
+            return _json.loads(row[0])
+    except Exception as e:
+        print(f"load_race_queue error: {e}")
+    return {}
+
+def save_race_queue(queue):
+    """Save race queue to PostgreSQL."""
+    try:
+        import json as _json
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO settings (key, value) VALUES (:key, :value)
+            ON CONFLICT (key) DO UPDATE SET value = :value
+        """, {"key": "race_queue", "value": _json.dumps(queue)})
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_race_queue error: {e}")
 
 def cors_response(data, status=200):
     resp = jsonify(data)
@@ -1113,6 +1145,7 @@ def race_from_browser():
         }
         app.config["RACE_QUEUE"] = queue
         total = len(queue)
+        save_race_queue(queue)
 
     action = "updated" if is_update else "added"
     return cors_response({"success": True, "count": len(runners), "fi": fi, "action": action, "total": total})
@@ -1150,6 +1183,7 @@ def race_remove(fi):
 def race_clear():
     """Clear all races from queue."""
     app.config["RACE_QUEUE"] = {}
+    save_race_queue({})
     return jsonify({"success": True})
 
 @app.route("/api/race/add-link", methods=["POST", "GET"])
@@ -1515,6 +1549,7 @@ def auto_refresh_races():
                     updated += 1
 
             app.config["RACE_QUEUE"] = queue
+            save_race_queue(queue)
             print(f"Auto-refresh done: {updated}/{len(queue)} races updated")
 
         except Exception as e:
