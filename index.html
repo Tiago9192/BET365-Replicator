@@ -1564,16 +1564,14 @@ async function loadMultiple() {
 
   document.getElementById("loadStatus").textContent = `Cargando ${urls.length} carreras...`;
 
-  // Load in parallel - max 3 at a time to avoid overwhelming QRSolver
+  // Load sequentially - 1 at a time to avoid overwhelming the guest slot
   let loaded = 0;
   let errors = 0;
-  const chunkSize = 10;
 
-  for (let i = 0; i < urls.length; i += chunkSize) {
-    const chunk = urls.slice(i, i + chunkSize);
-    document.getElementById("loadStatus").textContent = `Cargando ${Math.min(i+chunkSize, urls.length)}/${urls.length}...`;
-    const results = await Promise.all(chunk.map(url => loadRaceByUrl(url, false)));
-    results.forEach(ok => ok ? loaded++ : errors++);
+  for (let i = 0; i < urls.length; i++) {
+    document.getElementById("loadStatus").textContent = `Cargando ${i+1}/${urls.length}...`;
+    const ok = await loadRaceByUrl(urls[i], false);
+    if (ok) loaded++; else errors++;
   }
 
   document.getElementById("multiUrlInput").value = "";
