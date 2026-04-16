@@ -1158,6 +1158,12 @@ function toggleVenue(venue) {
 }
 
 function renderInlineRunners(fi, runners) {
+  // If container doesn't exist yet, re-render queue first to create it
+  if (!document.getElementById("raceInlineRunners_" + fi)) {
+    // Update queue with fresh runners so renderRaceQueue creates the container
+    if (raceQueue[fi]) raceQueue[fi].runners = runners.map(r => ({...r, odd: r.odd_raw}));
+    renderRaceQueue();
+  }
   const el = document.getElementById("raceInlineRunners_" + fi);
   if (!el) return;
   const stakeVal = document.getElementById("stakeInput")?.value || "1";
