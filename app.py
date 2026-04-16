@@ -1053,6 +1053,9 @@ except Exception as e:
 if "RACE_QUEUE" not in app.config:
     app.config["RACE_QUEUE"] = {}   # key = fi (fixture id)
 
+import threading as _threading
+RACE_QUEUE_LOCK = _threading.Lock()
+
 def cors_response(data, status=200):
     resp = jsonify(data)
     resp.headers["Access-Control-Allow-Origin"]  = "*"
@@ -1095,23 +1098,24 @@ def race_from_browser():
     else:
         display_name = f"Carrera {race_date}" if race_date else f"Carrera F{fi}"
 
-    # Check if this race already exists (update) or is new (add)
-    queue = app.config["RACE_QUEUE"]
-    is_update = fi in queue
-
-    queue[fi] = {
-        "fi":       fi,
-        "url":      url,
-        "sport_id": sport_id,
-        "runners":  runners,
-        "date":     race_date,
-        "name":     display_name,
-        "ts":       datetime.utcnow().isoformat(),
-        "selected": None
-    }
+    with RACE_QUEUE_LOCK:
+        queue     = app.config["RACE_QUEUE"]
+        is_update = fi in queue
+        queue[fi] = {
+            "fi":       fi,
+            "url":      url,
+            "sport_id": sport_id,
+            "runners":  runners,
+            "date":     race_date,
+            "name":     display_name,
+            "ts":       datetime.utcnow().isoformat(),
+            "selected": None
+        }
+        app.config["RACE_QUEUE"] = queue
+        total = len(queue)
 
     action = "updated" if is_update else "added"
-    return cors_response({"success": True, "count": len(runners), "fi": fi, "action": action})
+    return cors_response({"success": True, "count": len(runners), "fi": fi, "action": action, "total": total})
 
 
 @app.route("/api/race/last", methods=["GET"])
