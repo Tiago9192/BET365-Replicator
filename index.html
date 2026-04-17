@@ -275,10 +275,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   <div id="betResults"></div>
   <div id="oddCheckResult" style="display:none"></div>
 
-  <!-- Hidden inputs for stake/dropPct used by placeBet -->
-  <input type="hidden" id="stakeInput" value="1">
+  <!-- Hidden inputs for dropPct used by placeBet -->
   <input type="hidden" id="dropPct" value="10">
-  <input type="hidden" id="manualOddInput" value="">
 
 </div>
 
@@ -1573,7 +1571,7 @@ async function loadMultiple() {
     const ok = await loadRaceByUrl(urls[i], false);
     if (ok) loaded++; else errors++;
     // Small delay between requests to let proxy breathe
-    if (i < urls.length - 1) await new Promise(r => setTimeout(r, 800));
+    if (i < urls.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
 
   document.getElementById("multiUrlInput").value = "";
