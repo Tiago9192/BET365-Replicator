@@ -805,11 +805,78 @@ def load_runners():
                 runners = parse_prematch_runners(raw)
             else:
                 fetch_error = f"Prematch error: {raw[:200]}"
+                # Retry prematch with rotated IP if ConnectError
+                if "connecterror" in raw.lower() or "ERR_REQUEST_ERROR" in raw:
+                    for retry in range(2):
+                        time.sleep(2)
+                        import random as _random
+                        try:
+                            from urllib.parse import urlparse as _up
+                            p = _up(proxy_for_guest)
+                            user = p.username or ""
+                            base_user = user.split("-session-")[0]
+                            new_session = _random.randint(100000, 999999)
+                            new_user = f"{base_user}-session-{new_session}"
+                            rotated = proxy_for_guest.replace(user, new_user)
+                            rotated_body2 = {"domain": domain, "proxy": encode_proxy(rotated)}
+                            gs3, gr3 = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, rotated_body2)
+                            if gs3 == 200 and "session_id" in gr3:
+                                gid3 = gr3["session_id"]
+                                r3 = requests.get(f"{QRSOLVER_BASE}/api/placebet/guest/{gid3}/prematch", headers=get_headers(api_key), params={"pd": pd}, timeout=30, verify=False)
+                                raw3 = r3.text
+                                qrsolver_request("DELETE", f"/api/placebet/session/{gid3}/", api_key)
+                                if raw3 and "connecterror" not in raw3.lower() and "error" not in raw3.lower():
+                                    runners = parse_prematch_runners(raw3)
+                                    fetch_error = None
+                                    if runners: break
+                        except Exception as er:
+                            print(f"Prematch retry error: {er}")
 
             # Close guest session immediately to free the slot
             qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
         else:
             fetch_error = f"Error creando guest: {gr}"
+            err_code = gr.get("code", "") if isinstance(gr, dict) else ""
+            if err_code in ("ERR_BAD_PROXY", "ERR_REQUEST_ERROR", "ERR_NO_SLOT"):
+                for retry in range(3):
+                    time.sleep(2)
+                    print(f"Retry {retry+1}/3 rotating proxy IP...")
+                    # Rotate IP by changing session ID in proxy URL
+                    import random as _random
+                    rotated_proxy = proxy_for_guest
+                    if proxy_for_guest and "@" in proxy_for_guest:
+                        try:
+                            from urllib.parse import urlparse as _up
+                            p = _up(proxy_for_guest)
+                            user = p.username or ""
+                            # Remove existing session suffix and add new one
+                            base_user = user.split("-session-")[0]
+                            new_session = _random.randint(100000, 999999)
+                            new_user = f"{base_user}-session-{new_session}"
+                            rotated_proxy = proxy_for_guest.replace(user, new_user)
+                            print(f"Rotated proxy session: {new_session}")
+                        except Exception as ep:
+                            print(f"Proxy rotate error: {ep}")
+                    rotated_body = {"domain": domain}
+                    if rotated_proxy:
+                        rotated_body["proxy"] = encode_proxy(rotated_proxy)
+                    gs2, gr2 = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, rotated_body)
+                    if gs2 == 200 and "session_id" in gr2:
+                        guest_id2 = gr2["session_id"]
+                        url_pm2 = f"{QRSOLVER_BASE}/api/placebet/guest/{guest_id2}/prematch"
+                        try:
+                            r_pm2 = requests.get(url_pm2, headers=get_headers(api_key), params={"pd": pd}, timeout=30, verify=False)
+                            raw = r_pm2.text
+                        except Exception:
+                            raw = ""
+                        if raw and "invalid" not in raw.lower() and "error" not in raw.lower() and "connecterror" not in raw.lower():
+                            runners = parse_prematch_runners(raw)
+                            fetch_error = None
+                        qrsolver_request("DELETE", f"/api/placebet/session/{guest_id2}/", api_key)
+                        if runners:
+                            break
+                    else:
+                        fetch_error = f"Error creando guest (retry {retry+1}): {gr2}"
 
     except Exception as e:
         fetch_error = str(e)
