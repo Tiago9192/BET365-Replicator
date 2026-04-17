@@ -1572,6 +1572,8 @@ async function loadMultiple() {
     document.getElementById("loadStatus").textContent = `Cargando ${i+1}/${urls.length}...`;
     const ok = await loadRaceByUrl(urls[i], false);
     if (ok) loaded++; else errors++;
+    // Small delay between requests to let proxy breathe
+    if (i < urls.length - 1) await new Promise(r => setTimeout(r, 800));
   }
 
   document.getElementById("multiUrlInput").value = "";
