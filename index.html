@@ -532,7 +532,7 @@ function renderRunners(runners) {
   const stakeVal = document.getElementById("stakeInput")?.value || "1";
 
   document.getElementById("runnersItems").innerHTML = runners.map((r, i) => {
-    const isSP     = !r.odd_dec || r.odd_dec <= 0 || r.odd_raw === "SP";
+    const isSP     = !r.odd_dec || r.odd_dec <= 0 || !r.odd_raw || r.odd_raw.trim().toUpperCase().startsWith("SP");
     const oddLabel = r.odd_dec > 0 ? r.odd_dec.toFixed(2) : (r.odd_raw || "SP");
     const isActive = raceData.selected && raceData.selected.id === r.id;
 
@@ -719,7 +719,7 @@ function selectOddChip(odd) {
 
 function checkOddSelector() {
   if (!raceData.selected) return;
-  const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw === "SP";
+  const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw.trim().toUpperCase().startsWith("SP");
   const spSection     = document.getElementById("oddSelectorSection");
   const normalSection = document.getElementById("normalStakeSection");
   if (spSection)     spSection.style.display     = isSP ? "block" : "none";
@@ -772,7 +772,7 @@ async function placeBet() {
   const dropPct = parseFloat(document.getElementById("dropPct").value) || 10;
 
   // Use manual odd if SP
-  const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw === "SP";
+  const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw.trim().toUpperCase().startsWith("SP");
   if (isSP) {
     const manualOdd = parseFloat(document.getElementById("manualOddInput")?.value);
     if (!manualOdd || manualOdd < 1.01) {
@@ -1166,7 +1166,7 @@ function renderInlineRunners(fi, runners) {
   if (!el) return;
   const stakeVal = document.getElementById("stakeInput")?.value || "1";
   el.innerHTML = runners.map((r, i) => {
-    const isSP     = !r.odd_dec || r.odd_dec <= 0 || r.odd_raw === "SP";
+    const isSP     = !r.odd_dec || r.odd_dec <= 0 || !r.odd_raw || r.odd_raw.trim().toUpperCase().startsWith("SP");
     const oddLabel = r.odd_dec > 0 ? r.odd_dec.toFixed(2) : (r.odd_raw || "SP");
     const isActive = raceData.selected && raceData.selected.id === r.id;
 

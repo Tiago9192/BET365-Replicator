@@ -677,10 +677,12 @@ def parse_prematch_runners(raw):
         if sel_id_int not in seen_ids:
             dec = odd_to_decimal(odd) if odd else 0
             seen_ids.add(sel_id_int)
+            # Clean odd_raw - remove any trailing garbage chars
+            clean_odd = (odd or "SP").strip().rstrip(":;| ")
             runners.append({
                 "id":       sel_id_int,
                 "name":     name,
-                "odd_raw":  odd or "SP",
+                "odd_raw":  clean_odd,
                 "odd_dec":  dec or 0,
                 "prog_num": prog_num
             })
