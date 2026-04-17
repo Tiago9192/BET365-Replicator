@@ -42,14 +42,16 @@ def get_db():
 def load_race_queue():
     """Load race queue from PostgreSQL."""
     try:
+        import json as _json
         conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
-        row = cursor.fetchone()
+        rows = conn.run("SELECT value FROM settings WHERE key = :key", key="race_queue")
         conn.close()
-        if row and row[0]:
-            import json as _json
-            return _json.loads(row[0])
+        if rows and rows[0] and rows[0][0]:
+            data = _json.loads(rows[0][0])
+            print(f"load_race_queue: loaded {len(data)} races from DB")
+            return data
+        else:
+            print(f"load_race_queue: no data in DB")
     except Exception as e:
         print(f"load_race_queue error: {e}")
     return {}
@@ -59,13 +61,12 @@ def save_race_queue(queue):
     try:
         import json as _json
         conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO settings (key, value) VALUES (:key, :value)
-            ON CONFLICT (key) DO UPDATE SET value = :value
-        """, {"key": "race_queue", "value": _json.dumps(queue)})
-        conn.commit()
+        conn.run(
+            "INSERT INTO settings (key, value) VALUES (:key, :value) ON CONFLICT (key) DO UPDATE SET value = :value",
+            key="race_queue", value=_json.dumps(queue)
+        )
         conn.close()
+        print(f"save_race_queue: saved {len(queue)} races to DB")
     except Exception as e:
         print(f"save_race_queue error: {e}")
 
