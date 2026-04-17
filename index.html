@@ -1177,6 +1177,9 @@ function renderInlineRunners(fi, runners) {
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:6px">Cuota del tipster</div>
           <input type="number" id="manualOddInput" placeholder="ej: 3.5" step="0.25" min="1.01"
             inputmode="decimal" oninput="onManualOddInput(this.value)"
+            onclick="event.stopPropagation()"
+            onmousedown="event.stopPropagation()"
+            ontouchstart="event.stopPropagation()"
             style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;
                    padding:8px 10px;color:var(--text);font-family:'Space Mono',monospace;
                    font-size:16px;font-weight:700;outline:none;margin-bottom:8px;box-sizing:border-box;">
@@ -1198,6 +1201,9 @@ function renderInlineRunners(fi, runners) {
           <div style="flex:1">
             <input type="number" id="stakeInput" value="${stakeVal}" min="0.25" step="0.25"
               inputmode="decimal" oninput="updateStakeChips(this.value)"
+              onclick="event.stopPropagation()"
+              onmousedown="event.stopPropagation()"
+              ontouchstart="event.stopPropagation()"
               style="width:100%;background:var(--surface);border:1px solid var(--border);
                      border-radius:8px;padding:8px 10px;color:var(--text);
                      font-size:14px;font-weight:700;outline:none;box-sizing:border-box;">
