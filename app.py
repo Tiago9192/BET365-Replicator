@@ -331,7 +331,15 @@ def login_account_safe(account):
             "status": "⚠ agotados reintentos — usando esta IP"
         })
 
-    # ── Phase 2: Create session on QRSolver ───────────────────────────────
+    # ── Phase 2: Clean up any existing session first ─────────────────────
+    if account.get("session_id"):
+        old_sid = account["session_id"]
+        print(f"Cleaning up old session {old_sid} for {account_name}")
+        qrsolver_request("POST", f"/api/placebet/session/{old_sid}/logout/", api_key)
+        qrsolver_request("DELETE", f"/api/placebet/session/{old_sid}/", api_key)
+        time.sleep(1)  # Give QRSolver time to free the slot
+
+    # ── Phase 3: Create session on QRSolver ───────────────────────────────
     domain = account.get("domain", "https://www.bet365.com/")
     body = {
         "domain": domain,
@@ -453,7 +461,9 @@ def login_all():
     accounts = load_accounts()
     results  = []
 
-    for account in accounts:
+    for i, account in enumerate(accounts):
+        if i > 0:
+            time.sleep(2)  # Wait for previous slot to stabilize
         result = login_account_safe(account)
         results.append(result)
         # Update account in file immediately so the next account sees this IP
