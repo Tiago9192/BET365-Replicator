@@ -42,17 +42,33 @@ def get_db():
 def load_race_queue():
     """Load race queue from PostgreSQL."""
     try:
+        import json as _json
         conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
-        row = cursor.fetchone()
+        rows = conn.run("SELECT value FROM settings WHERE key = :key", key="race_queue")
         conn.close()
-        if row and row[0]:
-            import json as _json
-            return _json.loads(row[0])
+        if rows and rows[0] and rows[0][0]:
+            data = _json.loads(rows[0][0])
+            print(f"load_race_queue: loaded {len(data)} races from DB")
+            return data
+        else:
+            print(f"load_race_queue: no data in DB")
     except Exception as e:
         print(f"load_race_queue error: {e}")
     return {}
+
+def save_race_queue(queue):
+    """Save race queue to PostgreSQL."""
+    try:
+        import json as _json
+        conn = get_db()
+        conn.run(
+            "INSERT INTO settings (key, value) VALUES (:key, :value) ON CONFLICT (key) DO UPDATE SET value = :value",
+            key="race_queue", value=_json.dumps(queue)
+        )
+        conn.close()
+        print(f"save_race_queue: saved {len(queue)} races to DB")
+    except Exception as e:
+        print(f"save_race_queue error: {e}")
 
 def save_race_queue(queue):
     """Save race queue to PostgreSQL."""
@@ -897,26 +913,11 @@ def place_bet_all():
 
         account_stake = get_stake_for_account(account)
 
-        # Convert odd to decimal float for QRSolver
-        def to_decimal_odd(odd_str):
-            if not odd_str or str(odd_str).upper().startswith("SP"):
-                return None
-            odd_str = str(odd_str).strip()
-            try:
-                if "/" in odd_str:
-                    n, d = odd_str.split("/")
-                    return round(int(n) / int(d) + 1, 3)
-                return round(float(odd_str), 3)
-            except:
-                return None
-
-        odd_decimal = to_decimal_odd(odd_raw)
-
         selection = {
             "sport_id":         sport_id,
             "fi":               fi,
             "id":               selection_id,
-            "odd":              odd_decimal if odd_decimal else odd_raw,
+            "odd":              odd_raw,
             "stake":            account_stake,
             "accept_min_odd":   1.01,
             "accept_max_odd":   1000.0,
