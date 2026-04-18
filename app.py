@@ -879,15 +879,14 @@ def place_bet_all():
     import math as _math, random as _random
 
     # Get stake units from request (if using bankroll system)
-    stake_units = data.get("stake_units", None)
+    stake_units = data.get("stake_units", stake)  # default to stake value
 
     def get_stake_for_account(account):
         """Calculate stake for account using bankroll or fixed stake."""
-        if stake_units is not None:
-            account_stake1 = account.get("stake1", 0)
-            if account_stake1 > 0:
-                raw = stake_units * account_stake1
-                return int(_math.ceil(raw))  # round up to next integer
+        account_stake1 = account.get("stake1", 0)
+        if account_stake1 > 0 and stake_units is not None:
+            raw = float(stake_units) * float(account_stake1)
+            return max(1, int(_math.ceil(raw)))  # round up, minimum $1
         return stake  # fallback to fixed stake
 
     def bet_one(account):
@@ -925,7 +924,7 @@ def place_bet_all():
             "ip":      account.get("current_ip", "—"),
             "stake":   account_stake,
             "delay":   round(delay, 2),
-            "success": status == 200 and (resp.get("result") == "OK" or str(resp.get("result","")).upper() == "OK"),
+            "success": status == 200 and (resp.get("result") == "OK" or (isinstance(resp.get("selections"), list) and len(resp.get("selections", [])) > 0 and resp.get("selections", [{}])[0].get("result") == "OK")),
             "receipt": resp.get("receipt"),
             "response": resp
         }
