@@ -368,7 +368,15 @@ def login_account_safe(account):
         "POST", f"/api/placebet/session/{session_id}/login/", api_key, body
     )
 
-    success = status2 == 200
+    print(f"LOGIN {account_name}: status={status2} resp={resp2}")
+    success = status2 == 200 and resp2.get("result") != "FAIL" if isinstance(resp2, dict) else status2 == 200
+
+    # If login failed but session was created, clean it up immediately
+    if not success:
+        print(f"Login failed for {account_name}, cleaning up session {session_id}")
+        qrsolver_request("POST", f"/api/placebet/session/{session_id}/logout/", api_key)
+        qrsolver_request("DELETE", f"/api/placebet/session/{session_id}/", api_key)
+
     return {
         "id":         account_id,
         "name":       account_name,
