@@ -768,27 +768,19 @@ async function placeBet() {
   const connected = accounts.filter(a=>a.status==="connected");
   if (!connected.length) { toast("Conecta las cuentas primero","error"); return; }
 
-  const stake   = parseFloat(document.getElementById("stakeInput").value) || 10;
+  const stake   = parseFloat(document.getElementById("stakeInput")?.value) || 1;
   const dropPct = parseFloat(document.getElementById("dropPct").value) || 10;
 
-  // Use manual odd if SP — save value BEFORE any re-render
+  // Use manual odd if SP
   const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw.trim().toUpperCase().startsWith("SP");
   if (isSP) {
-    const manualOddEl = document.getElementById("manualOddInput");
-    const manualOdd = parseFloat(manualOddEl?.value);
+    const manualOdd = parseFloat(document.getElementById("manualOddInput")?.value);
     if (!manualOdd || manualOdd < 1.01) {
       toast("Ingresa la cuota del tipster antes de disparar", "warn");
       return;
     }
-    // Update raceData immediately so it persists
     raceData.selected.odd_raw = manualOdd.toFixed(2);
     raceData.selected.odd_dec = manualOdd;
-    // Also update runner in runners array
-    const runnerIdx = raceData.runners.findIndex(r => r.id === raceData.selected.id);
-    if (runnerIdx >= 0) {
-      raceData.runners[runnerIdx].odd_raw = manualOdd.toFixed(2);
-      raceData.runners[runnerIdx].odd_dec = manualOdd;
-    }
   }
 
   isFiring = true;
