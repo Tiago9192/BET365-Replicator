@@ -42,16 +42,14 @@ def get_db():
 def load_race_queue():
     """Load race queue from PostgreSQL."""
     try:
-        import json as _json
         conn = get_db()
-        rows = conn.run("SELECT value FROM settings WHERE key = :key", key="race_queue")
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
+        row = cursor.fetchone()
         conn.close()
-        if rows and rows[0] and rows[0][0]:
-            data = _json.loads(rows[0][0])
-            print(f"load_race_queue: loaded {len(data)} races from DB")
-            return data
-        else:
-            print(f"load_race_queue: no data in DB")
+        if row and row[0]:
+            import json as _json
+            return _json.loads(row[0])
     except Exception as e:
         print(f"load_race_queue error: {e}")
     return {}
@@ -61,12 +59,13 @@ def save_race_queue(queue):
     try:
         import json as _json
         conn = get_db()
-        conn.run(
-            "INSERT INTO settings (key, value) VALUES (:key, :value) ON CONFLICT (key) DO UPDATE SET value = :value",
-            key="race_queue", value=_json.dumps(queue)
-        )
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO settings (key, value) VALUES (:key, :value)
+            ON CONFLICT (key) DO UPDATE SET value = :value
+        """, {"key": "race_queue", "value": _json.dumps(queue)})
+        conn.commit()
         conn.close()
-        print(f"save_race_queue: saved {len(queue)} races to DB")
     except Exception as e:
         print(f"save_race_queue error: {e}")
 
@@ -331,15 +330,7 @@ def login_account_safe(account):
             "status": "⚠ agotados reintentos — usando esta IP"
         })
 
-    # ── Phase 2: Clean up any existing session first ─────────────────────
-    if account.get("session_id"):
-        old_sid = account["session_id"]
-        print(f"Cleaning up old session {old_sid} for {account_name}")
-        qrsolver_request("POST", f"/api/placebet/session/{old_sid}/logout/", api_key)
-        qrsolver_request("DELETE", f"/api/placebet/session/{old_sid}/", api_key)
-        time.sleep(1)  # Give QRSolver time to free the slot
-
-    # ── Phase 3: Create session on QRSolver ───────────────────────────────
+    # ── Phase 2: Create session on QRSolver ───────────────────────────────
     domain = account.get("domain", "https://www.bet365.com/")
     body = {
         "domain": domain,
@@ -368,15 +359,7 @@ def login_account_safe(account):
         "POST", f"/api/placebet/session/{session_id}/login/", api_key, body
     )
 
-    print(f"LOGIN {account_name}: status={status2} resp={resp2}")
-    success = status2 == 200 and resp2.get("result") != "FAIL" if isinstance(resp2, dict) else status2 == 200
-
-    # If login failed but session was created, clean it up immediately
-    if not success:
-        print(f"Login failed for {account_name}, cleaning up session {session_id}")
-        qrsolver_request("POST", f"/api/placebet/session/{session_id}/logout/", api_key)
-        qrsolver_request("DELETE", f"/api/placebet/session/{session_id}/", api_key)
-
+    success = status2 == 200
     return {
         "id":         account_id,
         "name":       account_name,
@@ -467,34 +450,43 @@ def login_one(account_id):
 @app.route("/api/login-all", methods=["POST"])
 def login_all():
     accounts = load_accounts()
-    results  = []
 
-    for i, account in enumerate(accounts):
-        if i > 0:
-            time.sleep(2)  # Wait for previous slot to stabilize
-        result = login_account_safe(account)
-        results.append(result)
-        # Update account in file immediately so the next account sees this IP
-        fresh = load_accounts()
-        for a in fresh:
-            if a["id"] == account["id"]:
-                a["session_id"] = result.get("session_id")
-                a["status"]     = "connected" if result["success"] else "error"
-                a["current_ip"] = result.get("ip")
-                a["ip_log"]     = result.get("ip_log", [])
-        save_accounts(fresh)
+    # Mark all as loading immediately
+    for a in accounts:
+        a["status"] = "loading"
+    save_accounts(accounts)
 
-    connected = sum(1 for r in results if r["success"])
+    # Run all logins in parallel in background thread
+    def do_logins():
+        import concurrent.futures
+        accs = load_accounts()
+
+        def login_one(account):
+            result = login_account_safe(account)
+            with RACE_QUEUE_LOCK:
+                fresh = load_accounts()
+                for a in fresh:
+                    if a["id"] == account["id"]:
+                        a["session_id"]    = result.get("session_id")
+                        a["status"]        = "connected" if result["success"] else "error"
+                        a["current_ip"]    = result.get("ip")
+                        a["ip_log"]        = result.get("ip_log", [])
+                        a["last_activity"] = datetime.utcnow().isoformat()
+                save_accounts(fresh)
+            print(f"Login {account['name']}: {'OK' if result['success'] else 'FAIL - ' + str(result.get('error',''))}")
+            return result
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(accs)) as executor:
+            list(executor.map(login_one, accs))
+
+    threading.Thread(target=do_logins, daemon=True).start()
+
     return jsonify({
-        "results": results,
-        "summary": {
-            "total":     len(results),
-            "connected": connected,
-            "failed":    len(results) - connected
-        }
+        "success": True,
+        "message": "Conectando en background...",
+        "summary": {"total": len(accounts), "connected": 0, "failed": 0}
     })
 
-# ── Logout ─────────────────────────────────────────────────────────────────────
 @app.route("/api/accounts/<int:account_id>/logout", methods=["POST"])
 def logout_account(account_id):
     accounts = load_accounts()
@@ -510,42 +502,6 @@ def logout_account(account_id):
             a["status"]     = "disconnected"
     save_accounts(accounts)
     return jsonify({"success": True})
-
-@app.route("/api/accounts/<int:account_id>/force-logout", methods=["POST"])
-def force_logout(account_id):
-    """Force logout and delete all sessions for an account, even without session_id."""
-    accounts = load_accounts()
-    account = next((a for a in accounts if a["id"] == account_id), None)
-    if not account:
-        return jsonify({"error": "Cuenta no encontrada"}), 404
-
-    api_key = account["api_key"]
-    results = []
-
-    # Try to delete existing session_id if any
-    if account.get("session_id"):
-        qrsolver_request("POST", f"/api/placebet/session/{account['session_id']}/logout/", api_key)
-        r = qrsolver_request("DELETE", f"/api/placebet/session/{account['session_id']}/", api_key)
-        results.append(f"Deleted session {account['session_id']}: {r}")
-
-    # Also try to list and delete all sessions via API
-    s, sessions = qrsolver_request("GET", "/api/placebet/sessions/", api_key)
-    if s == 200 and isinstance(sessions, list):
-        for sess in sessions:
-            sid = sess.get("session_id") or sess.get("id")
-            if sid:
-                qrsolver_request("POST", f"/api/placebet/session/{sid}/logout/", api_key)
-                qrsolver_request("DELETE", f"/api/placebet/session/{sid}/", api_key)
-                results.append(f"Force deleted: {sid}")
-
-    # Clear session in DB
-    for a in accounts:
-        if a["id"] == account_id:
-            a["session_id"] = None
-            a["status"] = "disconnected"
-    save_accounts(accounts)
-
-    return jsonify({"success": True, "results": results})
 
 # ── Balance ────────────────────────────────────────────────────────────────────
 @app.route("/api/accounts/<int:account_id>/balance", methods=["GET"])
@@ -732,12 +688,10 @@ def parse_prematch_runners(raw):
         if sel_id_int not in seen_ids:
             dec = odd_to_decimal(odd) if odd else 0
             seen_ids.add(sel_id_int)
-            # Clean odd_raw - remove any trailing garbage chars
-            clean_odd = (odd or "SP").strip().rstrip(":;| ")
             runners.append({
                 "id":       sel_id_int,
                 "name":     name,
-                "odd_raw":  clean_odd,
+                "odd_raw":  odd or "SP",
                 "odd_dec":  dec or 0,
                 "prog_num": prog_num
             })
@@ -862,78 +816,11 @@ def load_runners():
                 runners = parse_prematch_runners(raw)
             else:
                 fetch_error = f"Prematch error: {raw[:200]}"
-                # Retry prematch with rotated IP if ConnectError
-                if "connecterror" in raw.lower() or "ERR_REQUEST_ERROR" in raw:
-                    for retry in range(2):
-                        time.sleep(2)
-                        import random as _random
-                        try:
-                            from urllib.parse import urlparse as _up
-                            p = _up(proxy_for_guest)
-                            user = p.username or ""
-                            base_user = user.split("-session-")[0]
-                            new_session = _random.randint(100000, 999999)
-                            new_user = f"{base_user}-session-{new_session}"
-                            rotated = proxy_for_guest.replace(user, new_user)
-                            rotated_body2 = {"domain": domain, "proxy": encode_proxy(rotated)}
-                            gs3, gr3 = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, rotated_body2)
-                            if gs3 == 200 and "session_id" in gr3:
-                                gid3 = gr3["session_id"]
-                                r3 = requests.get(f"{QRSOLVER_BASE}/api/placebet/guest/{gid3}/prematch", headers=get_headers(api_key), params={"pd": pd}, timeout=30, verify=False)
-                                raw3 = r3.text
-                                qrsolver_request("DELETE", f"/api/placebet/session/{gid3}/", api_key)
-                                if raw3 and "connecterror" not in raw3.lower() and "error" not in raw3.lower():
-                                    runners = parse_prematch_runners(raw3)
-                                    fetch_error = None
-                                    if runners: break
-                        except Exception as er:
-                            print(f"Prematch retry error: {er}")
 
             # Close guest session immediately to free the slot
             qrsolver_request("DELETE", f"/api/placebet/session/{guest_id}/", api_key)
         else:
             fetch_error = f"Error creando guest: {gr}"
-            err_code = gr.get("code", "") if isinstance(gr, dict) else ""
-            if err_code in ("ERR_BAD_PROXY", "ERR_REQUEST_ERROR", "ERR_NO_SLOT"):
-                for retry in range(3):
-                    time.sleep(2)
-                    print(f"Retry {retry+1}/3 rotating proxy IP...")
-                    # Rotate IP by changing session ID in proxy URL
-                    import random as _random
-                    rotated_proxy = proxy_for_guest
-                    if proxy_for_guest and "@" in proxy_for_guest:
-                        try:
-                            from urllib.parse import urlparse as _up
-                            p = _up(proxy_for_guest)
-                            user = p.username or ""
-                            # Remove existing session suffix and add new one
-                            base_user = user.split("-session-")[0]
-                            new_session = _random.randint(100000, 999999)
-                            new_user = f"{base_user}-session-{new_session}"
-                            rotated_proxy = proxy_for_guest.replace(user, new_user)
-                            print(f"Rotated proxy session: {new_session}")
-                        except Exception as ep:
-                            print(f"Proxy rotate error: {ep}")
-                    rotated_body = {"domain": domain}
-                    if rotated_proxy:
-                        rotated_body["proxy"] = encode_proxy(rotated_proxy)
-                    gs2, gr2 = qrsolver_request("POST", "/api/placebet/guest/create/", api_key, rotated_body)
-                    if gs2 == 200 and "session_id" in gr2:
-                        guest_id2 = gr2["session_id"]
-                        url_pm2 = f"{QRSOLVER_BASE}/api/placebet/guest/{guest_id2}/prematch"
-                        try:
-                            r_pm2 = requests.get(url_pm2, headers=get_headers(api_key), params={"pd": pd}, timeout=30, verify=False)
-                            raw = r_pm2.text
-                        except Exception:
-                            raw = ""
-                        if raw and "invalid" not in raw.lower() and "error" not in raw.lower() and "connecterror" not in raw.lower():
-                            runners = parse_prematch_runners(raw)
-                            fetch_error = None
-                        qrsolver_request("DELETE", f"/api/placebet/session/{guest_id2}/", api_key)
-                        if runners:
-                            break
-                    else:
-                        fetch_error = f"Error creando guest (retry {retry+1}): {gr2}"
 
     except Exception as e:
         fetch_error = str(e)
