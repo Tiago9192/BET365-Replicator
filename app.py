@@ -476,30 +476,6 @@ def login_all():
     })
 
 # ── Logout ─────────────────────────────────────────────────────────────────────
-@app.route("/api/logout-all", methods=["POST"])
-def logout_all():
-    import concurrent.futures
-    accounts = load_accounts()
-    connected = [a for a in accounts if a.get("session_id") and a.get("status") == "connected"]
-
-    def logout_one(account):
-        qrsolver_request("POST", f"/api/placebet/session/{account['session_id']}/logout/", account["api_key"])
-        qrsolver_request("DELETE", f"/api/placebet/session/{account['session_id']}/", account["api_key"])
-        print(f"Logout {account['name']}: OK")
-
-    if connected:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(connected)) as executor:
-            list(executor.map(logout_one, connected))
-
-    # Clear all sessions
-    fresh = load_accounts()
-    for a in fresh:
-        a["session_id"] = None
-        a["status"]     = "disconnected"
-    save_accounts(fresh)
-
-    return jsonify({"success": True, "disconnected": len(connected)})
-
 @app.route("/api/accounts/<int:account_id>/logout", methods=["POST"])
 def logout_account(account_id):
     accounts = load_accounts()
@@ -921,11 +897,26 @@ def place_bet_all():
 
         account_stake = get_stake_for_account(account)
 
+        # Convert odd to decimal float for QRSolver
+        def to_decimal_odd(odd_str):
+            if not odd_str or str(odd_str).upper().startswith("SP"):
+                return None
+            odd_str = str(odd_str).strip()
+            try:
+                if "/" in odd_str:
+                    n, d = odd_str.split("/")
+                    return round(int(n) / int(d) + 1, 3)
+                return round(float(odd_str), 3)
+            except:
+                return None
+
+        odd_decimal = to_decimal_odd(odd_raw)
+
         selection = {
             "sport_id":         sport_id,
             "fi":               fi,
             "id":               selection_id,
-            "odd":              odd_raw,
+            "odd":              odd_decimal if odd_decimal else odd_raw,
             "stake":            account_stake,
             "accept_min_odd":   1.01,
             "accept_max_odd":   1000.0,
