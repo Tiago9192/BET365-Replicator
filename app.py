@@ -450,42 +450,55 @@ def login_one(account_id):
 @app.route("/api/login-all", methods=["POST"])
 def login_all():
     accounts = load_accounts()
+    results  = []
 
-    # Mark all as loading immediately
-    for a in accounts:
-        a["status"] = "loading"
-    save_accounts(accounts)
+    for account in accounts:
+        result = login_account_safe(account)
+        results.append(result)
+        # Update account in file immediately so the next account sees this IP
+        fresh = load_accounts()
+        for a in fresh:
+            if a["id"] == account["id"]:
+                a["session_id"] = result.get("session_id")
+                a["status"]     = "connected" if result["success"] else "error"
+                a["current_ip"] = result.get("ip")
+                a["ip_log"]     = result.get("ip_log", [])
+        save_accounts(fresh)
 
-    # Run all logins in parallel in background thread
-    def do_logins():
-        import concurrent.futures
-        accs = load_accounts()
-
-        def login_one(account):
-            result = login_account_safe(account)
-            with RACE_QUEUE_LOCK:
-                fresh = load_accounts()
-                for a in fresh:
-                    if a["id"] == account["id"]:
-                        a["session_id"]    = result.get("session_id")
-                        a["status"]        = "connected" if result["success"] else "error"
-                        a["current_ip"]    = result.get("ip")
-                        a["ip_log"]        = result.get("ip_log", [])
-                        a["last_activity"] = datetime.utcnow().isoformat()
-                save_accounts(fresh)
-            print(f"Login {account['name']}: {'OK' if result['success'] else 'FAIL - ' + str(result.get('error',''))}")
-            return result
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(accs)) as executor:
-            list(executor.map(login_one, accs))
-
-    threading.Thread(target=do_logins, daemon=True).start()
-
+    connected = sum(1 for r in results if r["success"])
     return jsonify({
-        "success": True,
-        "message": "Conectando en background...",
-        "summary": {"total": len(accounts), "connected": 0, "failed": 0}
+        "results": results,
+        "summary": {
+            "total":     len(results),
+            "connected": connected,
+            "failed":    len(results) - connected
+        }
     })
+
+# ── Logout ─────────────────────────────────────────────────────────────────────
+@app.route("/api/logout-all", methods=["POST"])
+def logout_all():
+    import concurrent.futures
+    accounts = load_accounts()
+    connected = [a for a in accounts if a.get("session_id") and a.get("status") == "connected"]
+
+    def logout_one(account):
+        qrsolver_request("POST", f"/api/placebet/session/{account['session_id']}/logout/", account["api_key"])
+        qrsolver_request("DELETE", f"/api/placebet/session/{account['session_id']}/", account["api_key"])
+        print(f"Logout {account['name']}: OK")
+
+    if connected:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(connected)) as executor:
+            list(executor.map(logout_one, connected))
+
+    # Clear all sessions
+    fresh = load_accounts()
+    for a in fresh:
+        a["session_id"] = None
+        a["status"]     = "disconnected"
+    save_accounts(fresh)
+
+    return jsonify({"success": True, "disconnected": len(connected)})
 
 @app.route("/api/accounts/<int:account_id>/logout", methods=["POST"])
 def logout_account(account_id):

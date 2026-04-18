@@ -331,6 +331,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-he
   </div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
     <button class="btn btn-primary btn-sm" style="flex:1" onclick="loginAll()">⚡ Conectar todas</button>
+    <button class="btn btn-danger btn-sm" onclick="logoutAll()">⏏ Desconectar todas</button>
     <button class="btn btn-ghost btn-sm" onclick="keepaliveAll()">💓 Keepalive</button>
   </div>
   <div id="accountsList"><div class="empty-state">Cargando...</div></div>
@@ -1022,6 +1023,14 @@ async function saveEditAccount() {
 }
 async function loginOne(id){const a=accounts.find(a=>a.id===id);if(a)a.status="loading";renderAccounts();toast("Conectando...","info");const r=await fetch(`${API}/api/accounts/${id}/login`,{method:"POST"});const d=await r.json();if(d.error)toast(d.error,"error");else if(d.success)toast(`Conectada ✓ — IP: ${d.ip||"?"}`);else toast("Error conectando","error");loadAccounts();}
 async function logoutAccount(id){await fetch(`${API}/api/accounts/${id}/logout`,{method:"POST"});toast("Sesión cerrada");loadAccounts();}
+async function logoutAll(){
+  if(!confirm("¿Desconectar todas las cuentas?")) return;
+  const r = await fetch(`${API}/api/logout-all`, {method:"POST"});
+  const d = await r.json();
+  toast(`${d.disconnected} cuentas desconectadas`);
+  loadAccounts();
+}
+
 async function loginAll(){toast("Conectando y verificando IPs...","info");accounts.forEach(a=>a.status="loading");renderAccounts();const r=await fetch(`${API}/api/login-all`,{method:"POST"});const d=await r.json();const s=d.summary||{};toast(`${s.connected||0}/${s.total||0} conectadas`);loadAccounts();}
 async function keepaliveAll(){await fetch(`${API}/api/keepalive`,{method:"POST"});toast("Keepalive ✓");}
 
