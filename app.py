@@ -503,6 +503,42 @@ def logout_account(account_id):
     save_accounts(accounts)
     return jsonify({"success": True})
 
+@app.route("/api/accounts/<int:account_id>/force-logout", methods=["POST"])
+def force_logout(account_id):
+    """Force logout and delete all sessions for an account, even without session_id."""
+    accounts = load_accounts()
+    account = next((a for a in accounts if a["id"] == account_id), None)
+    if not account:
+        return jsonify({"error": "Cuenta no encontrada"}), 404
+
+    api_key = account["api_key"]
+    results = []
+
+    # Try to delete existing session_id if any
+    if account.get("session_id"):
+        qrsolver_request("POST", f"/api/placebet/session/{account['session_id']}/logout/", api_key)
+        r = qrsolver_request("DELETE", f"/api/placebet/session/{account['session_id']}/", api_key)
+        results.append(f"Deleted session {account['session_id']}: {r}")
+
+    # Also try to list and delete all sessions via API
+    s, sessions = qrsolver_request("GET", "/api/placebet/sessions/", api_key)
+    if s == 200 and isinstance(sessions, list):
+        for sess in sessions:
+            sid = sess.get("session_id") or sess.get("id")
+            if sid:
+                qrsolver_request("POST", f"/api/placebet/session/{sid}/logout/", api_key)
+                qrsolver_request("DELETE", f"/api/placebet/session/{sid}/", api_key)
+                results.append(f"Force deleted: {sid}")
+
+    # Clear session in DB
+    for a in accounts:
+        if a["id"] == account_id:
+            a["session_id"] = None
+            a["status"] = "disconnected"
+    save_accounts(accounts)
+
+    return jsonify({"success": True, "results": results})
+
 # ── Balance ────────────────────────────────────────────────────────────────────
 @app.route("/api/accounts/<int:account_id>/balance", methods=["GET"])
 def get_balance(account_id):
