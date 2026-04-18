@@ -42,33 +42,17 @@ def get_db():
 def load_race_queue():
     """Load race queue from PostgreSQL."""
     try:
-        import json as _json
         conn = get_db()
-        rows = conn.run("SELECT value FROM settings WHERE key = :key", key="race_queue")
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = :key", {"key": "race_queue"})
+        row = cursor.fetchone()
         conn.close()
-        if rows and rows[0] and rows[0][0]:
-            data = _json.loads(rows[0][0])
-            print(f"load_race_queue: loaded {len(data)} races from DB")
-            return data
-        else:
-            print(f"load_race_queue: no data in DB")
+        if row and row[0]:
+            import json as _json
+            return _json.loads(row[0])
     except Exception as e:
         print(f"load_race_queue error: {e}")
     return {}
-
-def save_race_queue(queue):
-    """Save race queue to PostgreSQL."""
-    try:
-        import json as _json
-        conn = get_db()
-        conn.run(
-            "INSERT INTO settings (key, value) VALUES (:key, :value) ON CONFLICT (key) DO UPDATE SET value = :value",
-            key="race_queue", value=_json.dumps(queue)
-        )
-        conn.close()
-        print(f"save_race_queue: saved {len(queue)} races to DB")
-    except Exception as e:
-        print(f"save_race_queue error: {e}")
 
 def save_race_queue(queue):
     """Save race queue to PostgreSQL."""
@@ -941,7 +925,7 @@ def place_bet_all():
             "ip":      account.get("current_ip", "—"),
             "stake":   account_stake,
             "delay":   round(delay, 2),
-            "success": status == 200 and resp.get("result") == "OK",
+            "success": status == 200 and (resp.get("result") == "OK" or str(resp.get("result","")).upper() == "OK"),
             "receipt": resp.get("receipt"),
             "response": resp
         }
