@@ -769,9 +769,9 @@ async function placeBet() {
   if (!connected.length) { toast("Conecta las cuentas primero","error"); return; }
 
   const stake   = parseFloat(document.getElementById("stakeInput")?.value) || 1;
-  const dropPct = parseFloat(document.getElementById("dropPct").value) || 10;
+  const dropPct = parseFloat(document.getElementById("dropPct")?.value) || 10;
 
-  // Use manual odd if SP
+  // Use manual odd if SP — save values BEFORE any re-render
   const isSP = !raceData.selected.odd_raw || raceData.selected.odd_raw.trim().toUpperCase().startsWith("SP");
   if (isSP) {
     const manualOdd = parseFloat(document.getElementById("manualOddInput")?.value);
@@ -781,6 +781,9 @@ async function placeBet() {
     }
     raceData.selected.odd_raw = manualOdd.toFixed(2);
     raceData.selected.odd_dec = manualOdd;
+    // Also update runner in array so re-render doesn't reset it
+    const runner = raceData.runners.find(r => r.id === raceData.selected.id);
+    if (runner) { runner.odd_raw = manualOdd.toFixed(2); runner.odd_dec = manualOdd; }
   }
 
   isFiring = true;
@@ -798,7 +801,7 @@ async function placeBet() {
         sport_id:     raceData.sport_id,
         fi:           raceData.fi,
         selection_id: raceData.selected.id,
-        odd:          (raceData.selected.odd_raw || '').trim().replace(/[:;| ]+$/g, '') || raceData.selected.odd_raw,
+        odd:          raceData.selected.odd_raw,
         stake,
         stake_units:  stake,
         odd_drop_pct: dropPct
